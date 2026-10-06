@@ -23,6 +23,10 @@ const Beat = (() => {
     schranz: { id: 'schranz', name: 'Schranz', bpm: 152 },
     chiptune: { id: 'chiptune', name: 'Chiptune', bpm: 140 },
     acoustic: { id: 'acoustic', name: 'Akustik-Pop', bpm: 104, swing: 0.18 },
+    hiphop: { id: 'hiphop', name: 'Hip-Hop', bpm: 90, swing: 0.14 },
+    pop: { id: 'pop', name: 'Pop', bpm: 116 },
+    metal: { id: 'metal', name: 'Metal', bpm: 160 },
+    kpop: { id: 'kpop', name: 'K-Pop', bpm: 128 },
   };
 
   // Harmonien über vier Takte
@@ -319,7 +323,159 @@ const Beat = (() => {
     }
   }
 
+  /* ---------- Hip-Hop, Pop, Metal, K-Pop ---------- */
+
+  // E-Piano: Sinus mit leiser Oktave, weich ausklingend
+  function epiano(t, freqs, decay = 0.8, peak = 0.05) {
+    for (const f of freqs) {
+      tone2(t, 'sine', f, decay, peak);
+      tone2(t, 'triangle', f * 2, decay * 0.5, peak * 0.3);
+    }
+  }
+  function tone2(t, type, freq, decay, peak, dest = bus) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    env(g, t, peak, decay);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + decay + 0.05);
+  }
+  function boom(t, from, to, decay, gain) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(from, t);
+    o.frequency.exponentialRampToValueAtTime(to, t + 0.1);
+    env(g, t, gain, decay);
+    o.connect(g).connect(bus);
+    o.start(t);
+    o.stop(t + decay + 0.05);
+  }
+  function snare(t, freq = 1800, gain = 0.5) {
+    noiseHit(t, 'bandpass', freq, gain, 0.14);
+    tone2(t, 'triangle', 190, 0.08, 0.15);
+  }
+
+  const HH_KICK = [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0];
+  const HH_BASS = [55, 73.42, 49, 41.2];
+  const HH_KEYS = [[220, 261.6, 329.6, 392], [146.8, 174.6, 220, 261.6], [174.6, 220, 261.6, 329.6], [164.8, 207.7, 246.9, 293.7]];
+  const HH_LEAD = [N(3), 0, 0, N(0), 0, 0, N(-2), 0, N(0), 0, 0, 0, 0, 0, 0, 0];
+
+  function playHiphop(s, t) {
+    if (HH_KICK[s]) boom(t, 120, 42, 0.45, 1);
+    if (level >= 1) {
+      if (s % 2 === 0) noiseHit(t, 'highpass', 8000, s % 4 === 2 ? 0.14 : 0.08, 0.04);
+      if (Math.random() < 0.3) noiseHit(t + Math.random() * 0.1, 'highpass', 3000, 0.04, 0.008); // Knistern wie Vinyl
+    }
+    if (level >= 2 && HH_KICK[s]) tone2(t, 'sine', HH_BASS[bar % 4], 0.5, 0.5); // 808-Bass
+    if (level >= 3) {
+      if (s === 4 || s === 12) snare(t);
+      if (s === 0 || s === 10) epiano(t, HH_KEYS[bar % 4]);
+    }
+    if (level >= 4) {
+      if (s === 14 && bar % 2) { // Scratch
+        const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+        src.buffer = noise;
+        f.type = 'bandpass';
+        f.Q.value = 6;
+        f.frequency.setValueAtTime(400, t);
+        f.frequency.exponentialRampToValueAtTime(2500, t + 0.07);
+        f.frequency.exponentialRampToValueAtTime(500, t + 0.14);
+        env(g, t, 0.5, 0.16);
+        src.connect(f).connect(g).connect(bus);
+        src.start(t);
+        src.stop(t + 0.2);
+      }
+      if (HH_LEAD[s]) pluck(t, HH_LEAD[s], 0.3);
+    }
+  }
+
+  const POP_BASS = [65.41, 98, 110, 87.31];
+  const POP_CHORDS = [[261.6, 329.6, 392], [246.9, 293.7, 392], [220, 261.6, 329.6], [220, 261.6, 349.2]];
+  const POP_RHYTHM = [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0];
+  const POP_MELODY = [
+    N(7), 0, N(7), 0, N(9), 0, N(7), 0, N(4), 0, 0, 0, N(2), 0, N(4), 0,
+    N(2), 0, N(2), 0, N(4), 0, N(2), 0, N(-1), 0, 0, 0, 0, 0, 0, 0,
+    N(0), 0, N(4), 0, N(7), 0, N(9), 0, N(12), 0, N(9), 0, N(7), 0, 0, 0,
+    N(5), 0, N(4), 0, N(2), 0, N(0), 0, N(2), 0, 0, 0, 0, 0, 0, 0,
+  ];
+
+  function playPop(s, t) {
+    if (s % 4 === 0) boom(t, 140, 50, 0.3, 0.85);
+    if (level >= 1) {
+      if (s % 4 === 2) noiseHit(t, 'highpass', 7500, 0.2, 0.07);
+      noiseHit(t, 'highpass', 9000, 0.04, 0.03);
+    }
+    if (level >= 2 && s % 2 === 0) synth(t, 'sawtooth', POP_BASS[bar % 4] * (s % 4 === 2 ? 2 : 1), 900, 0.22, 0.16);
+    if (level >= 3) {
+      if (s === 4 || s === 12) clap(t);
+      if (POP_RHYTHM[s]) POP_CHORDS[bar % 4].forEach(f => synth(t, 'sawtooth', f, 2600, 0.035, 0.22));
+    }
+    if (level >= 4) {
+      const note = POP_MELODY[(bar % 4) * 16 + s];
+      if (note) { tone2(t, 'sine', note * 2, 0.45, 0.09); tone2(t, 'sine', note * 4, 0.25, 0.025); }
+    }
+  }
+
+  const MET_ROOTS = [82.41, 65.41, 73.42, 82.41];
+  const MET_CHUG = [1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1];
+  const MET_LEAD = [N(-5), 0, N(-2), 0, N(0), 0, N(-2), 0, N(-5), 0, N(-7), 0, N(-5), 0, 0, 0];
+
+  function playMetal(s, t) {
+    if (s === 0 || s === 8) hardKick(t, 160, 50, 0.18, 1.1);
+    else if (level >= 3) hardKick(t, 150, 50, 0.1, 0.5); // Double-Bass
+    if (level >= 1) {
+      if (s % 2 === 0) noiseHit(t, 'highpass', 9000, 0.1, 0.03);
+      if (s === 0 && bar % 4 === 0) noiseHit(t, 'highpass', 5000, 0.25, 0.9); // Becken
+    }
+    if (level >= 2 && MET_CHUG[s]) {
+      const root = MET_ROOTS[bar % 4];
+      synth(t, 'sawtooth', root, 1800, 0.28, 0.09, drive, 2);
+      synth(t, 'sawtooth', root * 1.498, 1800, 0.2, 0.09, drive, 2);
+    }
+    if (level >= 3 && (s === 4 || s === 12)) snare(t, 1500, 0.6);
+    if (level >= 4 && MET_LEAD[s]) synth(t, 'sawtooth', MET_LEAD[s], 3200, 0.12, 0.2, drive, 3);
+  }
+
+  const KP_ROOTS = [92.5, 73.42, 110, 82.41];
+  const KP_BASS = [1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1];
+  const KP_CHORDS = [[370, 440, 554.4], [293.7, 370, 440], [277.2, 329.6, 440], [246.9, 329.6, 415.3]];
+  const KP_LEAD = [N(9), 0, N(12), 0, N(11), N(9), 0, N(7), N(9), 0, 0, 0, N(4), 0, N(7), 0];
+
+  function playKpop(s, t) {
+    if (s === 0 || s === 8 || (level >= 2 && s === 6)) boom(t, 160, 48, 0.28, 1);
+    if (level >= 1) {
+      if (s === 4 || s === 12) noiseHit(t, 'bandpass', 3500, 0.5, 0.03); // Fingerschnipsen
+      noiseHit(t, 'highpass', 9500, s % 2 ? 0.04 : 0.07, 0.025);
+    }
+    if (level >= 2 && KP_BASS[s]) synth(t, 'square', KP_ROOTS[bar % 4] * (s % 4 === 2 ? 2 : 1), 1200, 0.18, 0.12);
+    if (level >= 3) {
+      if (s === 4 || s === 12) clap(t);
+      if (s % 4 === 2) KP_CHORDS[bar % 4].forEach(f => [0.995, 1, 1.006].forEach(d => synth(t, 'sawtooth', f * d, 3000, 0.018, 0.14)));
+    }
+    if (level >= 4) {
+      if (KP_LEAD[s]) pluck(t, KP_LEAD[s], 0.32);
+      if (s === 12 && bar % 2 === 1) { // „Hey!“
+        const o = ctx.createOscillator(), f1 = ctx.createBiquadFilter(), f2 = ctx.createBiquadFilter(), g = ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(240, t);
+        o.frequency.linearRampToValueAtTime(200, t + 0.18);
+        f1.type = 'bandpass'; f1.frequency.value = 700; f1.Q.value = 5;
+        f2.type = 'bandpass'; f2.frequency.value = 1800; f2.Q.value = 6;
+        env(g, t, 0.5, 0.2);
+        o.connect(f1).connect(g);
+        o.connect(f2).connect(g);
+        g.connect(bus);
+        o.start(t);
+        o.stop(t + 0.22);
+      }
+    }
+  }
+
   function playStep(s, t) {
+    if (style.id === 'hiphop') return playHiphop(s, t);
+    if (style.id === 'pop') return playPop(s, t);
+    if (style.id === 'metal') return playMetal(s, t);
+    if (style.id === 'kpop') return playKpop(s, t);
     if (style.id === 'chiptune') return playChiptune(s, t);
     if (style.id === 'acoustic') return playAcoustic(s, t);
     if (style.id === 'hardtekk') return playHardtekk(s, t);

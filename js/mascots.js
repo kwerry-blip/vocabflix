@@ -164,6 +164,86 @@ function horseSvg() {
 </svg>`;
 }
 
+/* ---------- Comic-Figuren-Baukasten (Hip-Hop, Pop, Metal, K-Pop) ---------- */
+
+const KIDS = {
+  hiphop: { name: 'MC Flo', skin: '#8d5524', hair: '#1d130c', hairStyle: 'cap', cap: '#ffb400', top: '#ff6b35', bottom: '#3a5a98', shoes: '#ffffff', sole: '#ffb400', accessory: 'chain' },
+  pop: { name: 'Stella', skin: '#ffe0cc', hair: '#f5c542', hairStyle: 'ponytail', top: '#ff4fa3', bottom: '#8a5cff', shoes: '#ffffff', sole: '#ff4fa3', accessory: 'headset', skirt: true },
+  metal: { name: 'Rita Riff', skin: '#e0ac69', hair: '#2a1a1a', hairStyle: 'long', top: '#1e1e1e', bottom: '#2f3b52', shoes: '#3a2a2a', sole: '#ff3b30', accessory: 'guitar' },
+  kpop: { name: 'Jun', skin: '#f6d3b3', hair: '#a5d8ff', hairStyle: 'swoop', top: '#ffffff', bottom: '#b197fc', shoes: '#ffffff', sole: '#ff6ec7', accessory: 'earpiece', jacket: '#ffc9e3' },
+};
+
+function kidSvg(k) {
+  const outline = 'stroke="#23123a" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"';
+  // Haare hinter dem Kopf (lange Haare, Pferdeschwanz)
+  const hairBack = {
+    long: '',
+    ponytail: `<path class="mascot-tail mascot-tail-r" d="M76 26 Q100 18 98 48 Q96 66 86 76 Q92 56 86 42 Q82 34 74 32 Z" fill="${k.hair}"/>`,
+  }[k.hairStyle] || '';
+  // Haare vorne bzw. Kappe
+  const hairFront = {
+    cap: `<path d="M38 50 Q38 30 60 28 Q82 30 82 50 Z" fill="${k.hair}"/>
+          <path d="M36 46 Q38 22 60 22 Q82 22 84 46 Q60 40 36 46 Z" fill="${k.cap}"/>
+          <path d="M36 44 Q24 44 22 50 Q30 52 40 48 Z" fill="${k.cap}"/>
+          <circle cx="60" cy="23" r="2.5" fill="${k.cap}"/>`,
+    ponytail: `<path d="M37 54 Q34 26 60 24 Q86 26 83 54 Q76 38 62 36 Q50 42 37 54 Z" fill="${k.hair}"/>
+               <path d="M74 26 l2.5 -6 l2.5 6 l-5 0 Z" fill="#ffd400" stroke-width="1.2"/>`,
+    long: `<path d="M36 56 Q34 24 60 24 Q86 24 84 56 Q80 40 70 36 Q62 42 60 36 Q58 42 50 36 Q40 40 36 56 Z" fill="${k.hair}"/>`,
+    swoop: `<path d="M36 52 Q32 24 58 22 Q88 22 85 50 Q80 36 68 34 Q56 44 40 44 Q38 48 36 52 Z" fill="${k.hair}"/>
+            <path d="M46 30 Q58 24 70 28" fill="none" stroke="#fff" stroke-width="2" opacity=".7"/>`,
+  }[k.hairStyle] || '';
+  const legs = k.skirt
+    ? `<rect x="48" y="150" width="9" height="30" fill="${k.skin}"/><rect x="63" y="150" width="9" height="30" fill="${k.skin}"/>`
+    : `<rect x="46" y="128" width="12" height="52" fill="${k.bottom}"/><rect x="62" y="128" width="12" height="52" fill="${k.bottom}"/>`;
+  const shoes = side => `<g class="mascot-leg mascot-leg-${side}">
+      <path d="M${side === 'l' ? 42 : 61} 178 h18 v8 h-20 Z" fill="${k.shoes}"/>
+      <rect x="${side === 'l' ? 40 : 59}" y="185" width="21" height="6" rx="2" fill="${k.sole}"/></g>`;
+  const bottomPiece = k.skirt ? `<path d="M44 128 L76 128 L86 154 L34 154 Z" fill="${k.bottom}"/>` : '';
+  const top = k.jacket
+    ? `<path d="M42 92 L78 92 L81 132 L39 132 Z" fill="${k.jacket}"/><path d="M53 92 L67 92 L65 132 L55 132 Z" fill="${k.top}"/>
+       <path d="M60 104 c-3 -4 -8 0 0 6 c8 -6 3 -10 0 -6 Z" fill="#ff6ec7" stroke-width="1"/>`
+    : `<path d="M42 92 L78 92 L82 134 L38 134 Z" fill="${k.top}"/>`;
+  const sleeve = k.jacket || k.top;
+  const extra = {
+    chain: `<path d="M50 94 Q60 112 70 94" fill="none" stroke="#ffd400" stroke-width="2.5"/><circle cx="60" cy="108" r="4" fill="#ffd400" stroke-width="1.4"/>
+            <path d="M54 94 l0 10 M66 94 l0 10" fill="none" stroke="#fff" stroke-width="1.6"/>`,
+    headset: `<path d="M38 62 Q40 76 52 76" fill="none" stroke="#333" stroke-width="2"/><circle cx="53" cy="76" r="2.4" fill="#333" stroke="none"/>
+              <path d="M58 112 l3 6 6 .8 -4.5 4 1.2 6 -5.7-3 -5.7 3 1.2-6 -4.5-4 6-.8 Z" fill="#ffd400" stroke-width="1.2"/>`,
+    guitar: `<path d="M30 150 L80 104" stroke="#8a5a2b" stroke-width="5"/>
+             <path d="M24 140 Q16 150 22 160 Q30 170 40 162 Q48 156 42 146 Q36 134 24 140 Z" fill="#ff3b30"/>
+             <circle cx="32" cy="152" r="3.5" fill="#1e1e1e" stroke="none"/>
+             <path d="M58 104 l-6 12 h7 l-4 12 12 -16 h-7 l4 -8 Z" fill="#ffd400" stroke-width="1.2"/>`,
+    earpiece: `<path d="M82 62 Q82 72 72 74" fill="none" stroke="#bbb" stroke-width="1.8"/><circle cx="71" cy="74" r="1.8" fill="#bbb" stroke="none"/>`,
+  }[k.accessory] || '';
+  return `
+<svg class="mascot-figure kid" viewBox="0 0 120 200" xmlns="http://www.w3.org/2000/svg">
+  <g ${outline}>
+    ${hairBack}
+    ${legs}
+    ${shoes('l')}${shoes('r')}
+    <path d="M46 100 L30 62 L25 9" fill="none" stroke-width="12"/>
+    <path d="M74 100 L90 62 L95 9" fill="none" stroke-width="12"/>
+    <path d="M46 100 L30 62 L25 9" fill="none" stroke="${sleeve}" stroke-width="7"/>
+    <path d="M74 100 L90 62 L95 9" fill="none" stroke="${sleeve}" stroke-width="7"/>
+    <circle cx="25" cy="8" r="5.5" fill="${k.skin}"/><circle cx="95" cy="8" r="5.5" fill="${k.skin}"/>
+    ${k.hairStyle === 'long' ? `<path class="mascot-tail mascot-tail-l" d="M38 44 Q26 80 30 116 L46 110 Q42 80 46 56 Z" fill="${k.hair}"/>
+      <path class="mascot-tail mascot-tail-r" d="M82 44 Q94 80 90 116 L74 110 Q78 80 74 56 Z" fill="${k.hair}"/>` : ''}
+    ${bottomPiece}
+    ${top}
+    <rect x="55" y="78" width="10" height="12" fill="${k.skin}" stroke="none"/>
+    <path d="M38 52 Q38 28 60 28 Q82 28 82 52 Q82 72 60 84 Q38 72 38 52 Z" fill="${k.skin}"/>
+    ${hairFront}
+    <g stroke="none">
+      <ellipse cx="51" cy="60" rx="4.2" ry="5.5" fill="#23123a"/><ellipse cx="69" cy="60" rx="4.2" ry="5.5" fill="#23123a"/>
+      <circle cx="52.6" cy="57.8" r="1.7" fill="#fff"/><circle cx="70.6" cy="57.8" r="1.7" fill="#fff"/>
+      <ellipse cx="45" cy="69" rx="3.6" ry="2" fill="#ff8fb5" opacity=".6"/><ellipse cx="75" cy="69" rx="3.6" ry="2" fill="#ff8fb5" opacity=".6"/>
+    </g>
+    <path d="M54 71 Q60 78 66 71 Z" fill="#e0245e" stroke-width="1.8"/>
+    ${extra}
+  </g>
+</svg>`;
+}
+
 /* ---------- Gemeinsam ---------- */
 
 // Stehende Figur mit Tafel (für Ersteinstieg und Einstellungen)
@@ -176,6 +256,7 @@ function mascotSvg() {
   const type = vibe().mascot;
   if (type === 'pixel') return heroSvg();
   if (type === 'horse') return horseSvg();
+  if (KIDS[type]) return kidSvg(KIDS[type]);
   return ZEMI_SVG;
 }
 
@@ -183,6 +264,7 @@ function mascotLabel() {
   const type = vibe().mascot;
   if (type === 'pixel') return '👾 Dein Pixel-Held';
   if (type === 'horse') return `🐴 ${state.settings.horseName || 'Dein Pferd'}`;
+  if (KIDS[type]) return `${vibe().icon} ${KIDS[type].name}`;
   return '💃 Zemi';
 }
 

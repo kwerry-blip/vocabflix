@@ -31,6 +31,10 @@ const DROP_MSG = {
   schranz: ['SCHRANZ! ⚙️', 'Maschine an! ⚙️', 'Volle Kanne! 🔊'],
   chiptune: ['POWER-UP! ⚡', 'BONUS-LEVEL! ⭐', 'TURBO! 🚀'],
   acoustic: ['GALOPP! 🐎', 'Volle Fahrt! 💨', 'Hufe hoch! 🌟'],
+  hiphop: ['MIC DROP! 🎤', 'BOOM BAP! 💥', 'Fresh! 🔥'],
+  pop: ['HIT! 🌟', 'Superstar! ✨', 'Zugabe! 👏'],
+  metal: ['HEADBANG! 🤘', 'Volle Power! ⚡', 'Moshpit! 🔥'],
+  kpop: ['ENCORE! 💜', 'Daebak! ✨', 'Killing Part! 🔥'],
 };
 
 // Musikstil für die nächste Runde wählen und die Animationen an das Tempo anpassen
@@ -1523,7 +1527,8 @@ function applyOcrResult(data) {
 
 const STYLE_LABELS = {
   techhouse: '🎧 Tech-House (124 BPM)', hardtekk: '🔨 Hard-Tekk (165 BPM)', schranz: '⚙️ Schranz (152 BPM)',
-  chiptune: '👾 Chiptune (140 BPM)', acoustic: '🐴 Akustik-Pop (104 BPM)', mix: '🔀 Zufall – jede Runde anders',
+  chiptune: '👾 Chiptune (140 BPM)', acoustic: '🐴 Akustik-Pop (104 BPM)', hiphop: '🎤 Hip-Hop (90 BPM)',
+  pop: '🌟 Pop (116 BPM)', metal: '🤘 Metal (160 BPM)', kpop: '💜 K-Pop (128 BPM)', mix: '🔀 Zufall – jede Runde anders',
 };
 
 // Auswahl der Figur passend zum Vibe (Farbe des Pixel-Helden, Name und Fell des Pferdes)
@@ -1847,6 +1852,7 @@ function renderOnboarding() {
   } else if (onboarding.step === 2) {
     const intro = vibe().mascot === 'pixel' ? 'Das ist dein Pixel-Held. Welche Farbe soll er haben?'
       : vibe().mascot === 'horse' ? 'Das ist dein Pferd! Gib ihm einen Namen.'
+      : KIDS[vibe().mascot] ? `Das ist ${KIDS[vibe().mascot].name}! ${KIDS[vibe().mascot].name} zeigt dir deine Punkte und feiert mit dir.`
       : 'Das ist Zemi. Sie zeigt dir deine Punkte und feiert mit dir.';
     body = `
       <h1>${vibe().mascot === 'horse' ? 'Dein Pferd' : 'Deine Figur'}</h1>
