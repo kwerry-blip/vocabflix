@@ -110,6 +110,7 @@ function vibe() {
 function applyVibeTheme() {
   const v = vibe();
   document.body.dataset.vibe = v.id;
+  document.body.classList.toggle('easy', !!state.settings.easyTyping);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', v.themeColor);
   const homeIcon = document.querySelector('#tabbar [data-tab="home"] .ti');
   if (homeIcon) homeIcon.textContent = v.homeIcon;

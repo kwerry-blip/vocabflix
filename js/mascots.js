@@ -195,7 +195,7 @@ function showMascot(big, small = '') {
   el.setAttribute('aria-hidden', 'true');
   el.innerHTML = `
     <div class="mascot-bounce">
-      <div class="mascot-sign"><b>${esc(big)}</b>${small ? `<small>${esc(small)}</small>` : ''}</div>
+      <div class="mascot-sign ${String(big).length > 11 ? 'long' : ''}"><b>${esc(big)}</b>${small ? `<small>${esc(small)}</small>` : ''}</div>
       ${mascotSvg()}
       <span class="mascot-spark s1">✦</span><span class="mascot-spark s2">✦</span><span class="mascot-spark s3">✦</span>
     </div>`;

@@ -50,16 +50,21 @@ function levenshtein(a, b) {
 }
 
 // Ergebnis: 'correct' | 'typo' | 'wrong'
-function checkAnswer(input, target) {
+// lenient: nachsichtiger bei Tippfehlern (Einstellung „Leichter tippen“, z. B. bei Lese-Rechtschreib-Schwäche)
+function checkAnswer(input, target, { lenient = false } = {}) {
   const given = normalize(input);
   if (!given) return 'wrong';
-  const candidates = new Set([given, given.replace(/^to /, ''), given.replace(ARTICLES, '')]);
+  // Eingaben mit Klammern wie „all (the)“ oder „(to) learn“ genauso behandeln wie die Lösung
+  const bases = [given, normalize(given.replace(/[()[\]]/g, '')), normalize(given.replace(/\(.*?\)|\[.*?\]/g, ' '))].filter(Boolean);
+  const candidates = new Set(bases.flatMap(g => [g, g.replace(/^to /, ''), g.replace(ARTICLES, '')]));
   const forms = acceptedForms(target);
   for (const c of candidates) if (forms.includes(c)) return 'correct';
   for (const c of candidates) {
     for (const f of forms) {
-      if (f.length >= 5 && levenshtein(c, f) <= 1) return 'typo';
-      if (f.length >= 10 && levenshtein(c, f) <= 2) return 'typo';
+      const d = levenshtein(c, f);
+      if (f.length >= (lenient ? 3 : 5) && d <= 1) return 'typo';
+      if (f.length >= (lenient ? 6 : 10) && d <= 2) return 'typo';
+      if (lenient && f.length >= 10 && d <= 3) return 'typo';
     }
   }
   return 'wrong';

@@ -324,6 +324,7 @@ function renderHome() {
       <div class="progress"><div class="progress-fill ${today >= goal ? 'gold' : ''}" style="width:${Math.min(100, today / goal * 100)}%"></div></div>
       ${today >= goal ? '<p class="goal-done">Tagesziel geschafft! 🏆</p>' : ''}
     </div>
+    ${typeof testCardsHtml === 'function' ? testCardsHtml() : ''}
     ${weeklyCardHtml()}
     ${state.words.length >= 4 ? `
       <button class="btn big start-btn" data-action="start" data-unit="">
@@ -392,6 +393,13 @@ function pickWords(unit) {
 }
 
 function chooseType(w) {
+  const t = chooseTypeRaw(w);
+  // „Leichter tippen“: bis ein Wort sicher sitzt, lieber auswählen als tippen
+  if (state.settings.easyTyping && w.box < SAFE_BOX) return t === 'listen_type' ? 'listen_mc' : t.startsWith('type') ? 'mc_de_en' : t;
+  return t;
+}
+
+function chooseTypeRaw(w) {
   const speech = canSpeak();
   if (w.box === 0) return 'mc_en_de';
   if (w.box === 1) return pick(speech ? ['mc_de_en', 'listen_mc'] : ['mc_de_en']);
@@ -468,6 +476,7 @@ function lessonShell(inner, footer = '') {
         <div class="progress"><div class="progress-fill" id="lesson-progress" style="width:${pct}%"></div></div>
         <div class="mixer" id="mixer" aria-label="Beat-Level">${mixerHtml()}</div>
       </header>
+      ${lesson.arenaHtml ? `<div class="arena" id="arena">${lesson.arenaHtml()}</div>` : ''}
       <section class="exercise">${inner}</section>
       <footer class="lesson-foot" id="lesson-foot">${footer}</footer>
     </div>`;
@@ -632,7 +641,7 @@ ACTIONS.hint = () => { const h = $('#hint'); if (h) h.hidden = false; };
 ACTIONS['check-type'] = () => {
   if (lesson.locked) return;
   const input = $('#answer');
-  const result = checkAnswer(input.value, lesson.current.solution);
+  const result = checkAnswer(input.value, lesson.current.solution, { lenient: !!state.settings.easyTyping });
   input.disabled = true;
   input.classList.add(result === 'wrong' ? 'wrong' : 'right');
   answer(result);
@@ -670,6 +679,12 @@ function grade(w, ok) {
 function answer(result) {
   lesson.locked = true;
   const { w, item, solution } = lesson.current;
+  // Im Testmodus zählt die Schreibweise – wie im echten Vokabeltest
+  let strictTypo = false;
+  if (lesson.strict && result === 'typo' && !state.settings.easyTyping) {
+    result = 'wrong';
+    strictTypo = true;
+  }
   const ok = result !== 'wrong';
   grade(w, ok);
   lesson.lastOk = ok;
@@ -690,9 +705,10 @@ function answer(result) {
     if (lesson.noRequeue) lesson.done++; // ohne Wiederholung zählt auch eine falsche Antwort als erledigt
   }
   updateLessonTop();
+  if (lesson.onAnswer) lesson.onAnswer(ok);
   let body = '';
   if (result === 'typo') body = `<p>Achte auf die Schreibweise: <b>${esc(solution)}</b></p>`;
-  else if (!ok) body = `<p>Richtige Antwort:</p><p class="solution">${esc(solution)}</p>`;
+  else if (!ok) body = `<p>${strictTypo ? 'Fast! Im Test zählt aber die Schreibweise:' : 'Richtige Antwort:'}</p><p class="solution">${esc(solution)}</p>`;
   else body = `<p class="pair">${esc(w.en)} = ${esc(w.de)}</p>`;
   $('#lesson-foot').innerHTML = `
     <div class="feedback ${ok ? 'good' : 'bad'}">
@@ -969,6 +985,8 @@ function renderWordList() {
     <section class="unit-group">
       <div class="unit-head">
         <h2>${esc(g.unit)} <small>${g.words.length}</small></h2>
+        <button class="icon-btn" data-action="exam-start" data-unit="${esc(g.unit)}" aria-label="Probetest">📝</button>
+        <button class="icon-btn" data-action="unit-test-date" data-unit="${esc(g.unit)}" aria-label="Testdatum">📅</button>
         <button class="icon-btn" data-action="unit-share" data-unit="${esc(g.unit)}" aria-label="Unit teilen">📤</button>
         <button class="icon-btn" data-action="unit-rename" data-unit="${esc(g.unit)}" aria-label="Lektion umbenennen">✏️</button>
         <button class="icon-btn" data-action="unit-delete" data-unit="${esc(g.unit)}" aria-label="Lektion löschen">🗑️</button>
@@ -1577,6 +1595,8 @@ function renderSettings() {
       </label>
       <label class="switch"><input type="checkbox" id="set-sounds" ${st.sounds ? 'checked' : ''}> Soundeffekte bei richtig/falsch</label>
       <label class="switch"><input type="checkbox" id="set-speak" ${st.autoSpeak ? 'checked' : ''}> Englische Wörter automatisch vorlesen</label>
+      <label class="switch"><input type="checkbox" id="set-easy" ${st.easyTyping ? 'checked' : ''}> 🧩 Leichter tippen</label>
+      <p class="hint">Für alle, denen Rechtschreibung schwerfällt (z. B. bei Lese-Rechtschreib-Schwäche): größere Schrift, mehr Toleranz bei Tippfehlern und öfter Auswählen statt Tippen.</p>
       <button class="btn ghost" data-action="test-voice">🔊 Stimme testen</button>
     </div>
 
@@ -1626,6 +1646,7 @@ function renderSettings() {
   $('#set-horse')?.addEventListener('change', e => { st.horseName = e.target.value.trim(); save(); });
   bind('#set-volume', el => { st.beatVolume = Number(el.value); Beat.setVolume(st.beatVolume); beep(true); });
   bind('#set-speak', el => { st.autoSpeak = el.checked; });
+  bind('#set-easy', el => { st.easyTyping = el.checked; applyVibeTheme(); });
   $('#import-file').addEventListener('change', e => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';

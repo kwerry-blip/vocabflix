@@ -137,3 +137,24 @@ test('Echte OCR-Daten, in der App zugeschnitten (Lighthouse 1, S. 186)', () => {
     ['all (the)', 'alle'], ['people', 'Leute, Menschen'], ['place', 'Ort, Platz, Stelle'], ['make', 'machen, herstellen'],
   ]) assert.ok(has(en, de), `${en} = ${de} fehlt in ${JSON.stringify(pairs)}`);
 });
+
+test('„Leichter tippen“ ist nachsichtiger, normal bleibt streng', () => {
+  assert.equal(checkAnswer('frend', 'friend'), 'typo');
+  assert.equal(checkAnswer('sistr', 'sister'), 'typo');
+  assert.equal(checkAnswer('dg', 'dog'), 'wrong');
+  assert.equal(checkAnswer('dg', 'dog', { lenient: true }), 'typo');
+  assert.equal(checkAnswer('becaus', 'because', { lenient: true }), 'typo');
+  assert.equal(checkAnswer('bicause', 'because'), 'typo');
+  assert.equal(checkAnswer('bekos', 'because'), 'wrong');
+  assert.equal(checkAnswer('bekos', 'because', { lenient: true }), 'wrong');
+  assert.equal(checkAnswer('cat', 'dog', { lenient: true }), 'wrong');
+});
+
+test('Lösung mit Klammern exakt abgetippt zählt als richtig', () => {
+  assert.equal(checkAnswer('all (the)', 'all (the)'), 'correct');
+  assert.equal(checkAnswer('(to) learn', '(to) learn'), 'correct');
+  assert.equal(checkAnswer('Welche(r)', 'Welche(r)'), 'correct');
+  assert.equal(checkAnswer('(Groß-)Stadt', '(Groß-)Stadt'), 'correct');
+  assert.equal(checkAnswer('Stadt', '(Groß-)Stadt'), 'correct');
+  assert.equal(checkAnswer('(the) dog', 'cat'), 'wrong');
+});
