@@ -41,6 +41,11 @@ Jeder Musikstil lässt sich mit jeder Welt kombinieren.
   79 Stufen, Spezial-Erfolge, wöchentlich wechselnde Challenge, 12 Ränge pro Welt.
 - **Freiwilliger Lernpass:** Ein Bild mit Rang, Units und Lernserie, das das Kind selbst teilen kann – zum Beispiel
   mit Eltern oder Lehrkraft.
+- **Beat-Studio:** Eigenen Beat mit 16 Schritten bauen (Kick, Hi-Hat, Clap; Perkussion, Bass und Melodie werden
+  mit XP freigeschaltet), Sound-Kits Club, Retro und Rock. Der Beat kann als Lernmusik laufen und per Link geteilt werden.
+- **Stall (Pferde-Welt):** Jede richtige Antwort bringt eine Karotte. Pferd füttern, bürsten, streicheln, Tricks mit
+  dem Reiter-Rang freischalten und Ausrüstung (Decken, Schleife, Blumenkranz, Glitzer-Hufe) kaufen. Das Pferd ist
+  nie traurig – es gibt keinen Druck und keine Strafe fürs Pausieren.
 - **Sicherung** als Datei exportieren und auf einem anderen Gerät importieren.
 
 ## Installation

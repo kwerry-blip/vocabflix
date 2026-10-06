@@ -35,11 +35,16 @@ const DROP_MSG = {
   pop: ['HIT! 🌟', 'Superstar! ✨', 'Zugabe! 👏'],
   metal: ['HEADBANG! 🤘', 'Volle Power! ⚡', 'Moshpit! 🔥'],
   kpop: ['ENCORE! 💜', 'Daebak! ✨', 'Killing Part! 🔥'],
+  custom: ['DEIN DROP! 🎛️', 'Eigener Beat! 🔥', 'Studio-Power! 🎚️'],
 };
 
 // Musikstil für die nächste Runde wählen und die Animationen an das Tempo anpassen
 function applyBeatStyle(id = state.settings.beatStyle) {
-  const styleId = id === 'mix' ? pick(Object.keys(Beat.STYLES)) : id;
+  let styleId = id === 'mix' ? pick(Object.keys(Beat.STYLES).filter(k => k !== 'custom')) : id;
+  if (styleId === 'custom') {
+    if (state.studio) Beat.setCustom(state.studio);
+    else styleId = vibe().defaultStyle;
+  }
   Beat.setStyle(styleId);
   document.documentElement.style.setProperty('--beat', `${(60 / Beat.style.bpm).toFixed(3)}s`);
 }
@@ -101,6 +106,7 @@ function defaultState() {
     unitPlates: {},
     unitMeta: {}, // pro Unit: { testDate }
     week: null,
+    duels: {}, teams: {}, helpedIds: [], stickerLog: [], // Mit Freunden (social.js)
   };
 }
 
@@ -232,6 +238,7 @@ function beep(ok) {
 /* ---------- Navigation ---------- */
 
 let currentTab = 'home';
+// studio und stable ergänzen studio.js und stable.js
 const VIEWS = { home: renderHome, words: renderWords, scan: renderScan, goals: renderGoals, settings: renderSettings };
 
 function show(tab) {
@@ -345,6 +352,7 @@ function renderHome() {
         <b>📲 Als App installieren</b>
         <p>In Safari unten auf <b>Teilen</b> <span class="share-icon">⬆︎</span> tippen und <b>„Zum Home-Bildschirm“</b> wählen. Dann startet der Trainer wie eine richtige App – auch ohne Internet.</p>
       </div>` : ''}
+    ${typeof extrasHtml === 'function' ? extrasHtml() : ''}
     ${friendsCardHtml()}
     ${units.length ? `<h2 class="section-title">Deine Units</h2>` : ''}
     <div class="units">
@@ -1528,7 +1536,8 @@ function applyOcrResult(data) {
 const STYLE_LABELS = {
   techhouse: '🎧 Tech-House (124 BPM)', hardtekk: '🔨 Hard-Tekk (165 BPM)', schranz: '⚙️ Schranz (152 BPM)',
   chiptune: '👾 Chiptune (140 BPM)', acoustic: '🐴 Akustik-Pop (104 BPM)', hiphop: '🎤 Hip-Hop (90 BPM)',
-  pop: '🌟 Pop (116 BPM)', metal: '🤘 Metal (160 BPM)', kpop: '💜 K-Pop (128 BPM)', mix: '🔀 Zufall – jede Runde anders',
+  pop: '🌟 Pop (116 BPM)', metal: '🤘 Metal (160 BPM)', kpop: '💜 K-Pop (128 BPM)', custom: '🎛️ Mein Studio-Beat',
+  mix: '🔀 Zufall – jede Runde anders',
 };
 
 // Auswahl der Figur passend zum Vibe (Farbe des Pixel-Helden, Name und Fell des Pferdes)
@@ -1583,7 +1592,8 @@ function renderSettings() {
       <label class="switch"><input type="checkbox" id="set-mascot" ${st.mascot ? 'checked' : ''}> ${mascotLabel()} zeigt deine Punkte</label>
       <label class="switch"><input type="checkbox" id="set-beat" ${st.beat ? 'checked' : ''}> 🎵 Musik beim Lernen</label>
       <label>Musikstil
-        <select id="set-style">${[...vibe().styles, ...Object.keys(STYLE_LABELS).filter(k => !vibe().styles.includes(k))].map(k => opt(k, st.beatStyle, STYLE_LABELS[k])).join('')}</select>
+        <select id="set-style">${[...vibe().styles, ...Object.keys(STYLE_LABELS).filter(k => !vibe().styles.includes(k))]
+          .filter(k => k !== 'custom' || state.studio).map(k => opt(k, st.beatStyle, STYLE_LABELS[k])).join('')}</select>
       </label>
       <button type="button" class="btn ghost" data-action="preview-beat" id="preview-beat">▶ Probehören</button>
       <label>Lautstärke der Musik<input type="range" id="set-volume" min="0.1" max="1" step="0.1" value="${st.beatVolume}"></label>
@@ -1772,6 +1782,7 @@ ACTIONS['reset-progress'] = () => {
   state.badges = {};
   state.unitPlates = {};
   state.week = null;
+  if (state.horse) state.horse.spent = 0;
   save();
   renderSettings();
 };
@@ -1779,9 +1790,9 @@ ACTIONS['reset-progress'] = () => {
 ACTIONS['delete-all'] = () => {
   if (!confirm('Wirklich ALLE Vokabeln und den Fortschritt löschen?')) return;
   if (!confirm('Sicher? Das kann nicht rückgängig gemacht werden.')) return;
-  const settings = state.settings;
+  const { settings, deviceId } = state;
   state = defaultState();
-  state.settings = settings;
+  Object.assign(state, { settings, deviceId });
   save();
   renderSettings();
 };

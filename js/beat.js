@@ -27,7 +27,10 @@ const Beat = (() => {
     pop: { id: 'pop', name: 'Pop', bpm: 116 },
     metal: { id: 'metal', name: 'Metal', bpm: 160 },
     kpop: { id: 'kpop', name: 'K-Pop', bpm: 128 },
+    custom: { id: 'custom', name: 'Mein Beat', bpm: 120 },
   };
+  let customPattern = null;
+  let stepListener = null;
 
   // Harmonien über vier Takte
   const N = (semis) => 440 * Math.pow(2, semis / 12); // Halbtöne relativ zu A4
@@ -471,7 +474,46 @@ const Beat = (() => {
     }
   }
 
+  /* ---------- Eigener Beat aus dem Studio ---------- */
+
+  const STUDIO_BASS = [55, 65.41, 73.42, 82.41, 98];
+  const STUDIO_LEAD = [440, 523.25, 587.33, 659.25, 783.99];
+
+  function playCustom(s, t) {
+    const p = customPattern;
+    if (!p) return;
+    const kit = p.kit || 'club';
+    const on = row => p[row] && p[row][s];
+    if (on('kick')) {
+      if (kit === 'rock') hardKick(t, 160, 50, 0.18, 1.1);
+      else if (kit === 'chip') { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.08); g.gain.setValueAtTime(0.9, t); g.gain.linearRampToValueAtTime(0.0001, t + 0.12); o.connect(g).connect(bus); o.start(t); o.stop(t + 0.14); }
+      else boom(t, 150, 45, 0.35, 1);
+    }
+    if (level >= 1 && on('hat')) noiseHit(t, 'highpass', kit === 'chip' ? 10000 : 8000, 0.16, kit === 'rock' ? 0.05 : 0.04);
+    if (level >= 2 && on('bass')) {
+      const f = STUDIO_BASS[(p.bass[s] - 1) % 5];
+      if (kit === 'chip') chip(t, f * 2, 0.14, 0.3, 'triangle');
+      else if (kit === 'rock') { synth(t, 'sawtooth', f, 1800, 0.26, 0.1, drive, 2); synth(t, 'sawtooth', f * 1.498, 1800, 0.18, 0.1, drive, 2); }
+      else bass(t, f);
+    }
+    if (level >= 3) {
+      if (on('clap')) kit === 'rock' ? snare(t, 1500, 0.6) : kit === 'chip' ? noiseHit(t, 'bandpass', 2200, 0.5, 0.09) : clap(t);
+      if (on('perc')) kit === 'chip' ? chip(t, 1760, 0.05, 0.08) : noiseHit(t, 'bandpass', kit === 'rock' ? 4000 : 1300, 0.4, 0.05);
+    }
+    if (level >= 4 && on('lead')) {
+      const f = STUDIO_LEAD[(p.lead[s] - 1) % 5];
+      if (kit === 'chip') chip(t, f, 0.16, 0.09);
+      else if (kit === 'rock') synth(t, 'sawtooth', f / 2, 3200, 0.12, 0.2, drive, 3);
+      else synth(t, 'sawtooth', f, 3000, 0.07, 0.2);
+    }
+  }
+
   function playStep(s, t) {
+    if (stepListener) {
+      const delay = Math.max(0, (t - ctx.currentTime) * 1000);
+      setTimeout(() => stepListener && stepListener(s), delay);
+    }
+    if (style.id === 'custom') return playCustom(s, t);
     if (style.id === 'hiphop') return playHiphop(s, t);
     if (style.id === 'pop') return playPop(s, t);
     if (style.id === 'metal') return playMetal(s, t);
@@ -628,8 +670,15 @@ const Beat = (() => {
     style = STYLES[id] || STYLES.techhouse;
   }
 
+  // Pattern aus dem Studio: { kit, bpm, kick:[16], hat, clap, perc, bass:[0..5], lead:[0..5] }
+  function setCustom(pattern) {
+    customPattern = pattern;
+    STYLES.custom.bpm = Math.max(70, Math.min(170, pattern.bpm || 120));
+  }
+
   return {
-    start, stop, setLevel, setStyle, STYLES,
+    start, stop, setLevel, setStyle, setCustom, STYLES,
+    onStep(fn) { stepListener = fn; },
     get style() { return style; }, setVolume, duck, sfxCorrect, sfxWrong,
     get level() { return level; },
     get running() { return running; },

@@ -122,25 +122,32 @@ function heroSvg() {
 
 /* ---------- Pferd: läuft im Trab, trägt die Tafel auf dem Sattel ---------- */
 
-function horseSvg() {
+function horseSvg({ poles = true } = {}) {
   const c = HORSE_COLORS.find(h => h.id === state.settings.horseColor) || HORSE_COLORS[0];
+  // Ausrüstung aus dem Stall (stable.js)
+  const on = (state.horse && state.horse.on) || {};
+  const pad = (typeof PAD_COLORS !== 'undefined' && PAD_COLORS[on.pad]) || 'var(--primary, #e07a2f)';
+  const hoof = on.hooves ? '#ffd23f' : '#3b2a20';
   const leg = (x, cls) => `
     <g class="mascot-leg ${cls}">
       <rect x="${x}" y="82" width="9" height="34" rx="3" fill="${c.color}"/>
-      <rect x="${x - 1}" y="112" width="11" height="7" rx="2" fill="#3b2a20"/>
+      <rect x="${x - 1}" y="112" width="11" height="7" rx="2" fill="${hoof}"/>
+      ${on.hooves ? `<path class="glitter" d="M${x + 4} 108 l1.4 3 3 1.4 -3 1.4 -1.4 3 -1.4 -3 -3 -1.4 3 -1.4 Z" fill="#fff" stroke="none"/>` : ''}
     </g>`;
+  const star = (x, y, r = 4) => `<path d="M${x} ${y - r} L${x + r * 0.3} ${y - r * 0.3} L${x + r} ${y} L${x + r * 0.3} ${y + r * 0.3} L${x} ${y + r} L${x - r * 0.3} ${y + r * 0.3} L${x - r} ${y} L${x - r * 0.3} ${y - r * 0.3} Z" fill="#fff6a8" stroke="none"/>`;
   return `
 <svg class="mascot-figure horse" viewBox="0 0 160 124" xmlns="http://www.w3.org/2000/svg">
   <g stroke="#3b2a20" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
-    <!-- Stangen für die Tafel -->
-    <path d="M66 52 L66 0 M94 52 L94 0" stroke="#8a5a2b" stroke-width="4"/>
+    ${poles ? `<!-- Stangen für die Tafel -->
+    <path d="M66 52 L66 0 M94 52 L94 0" stroke="#8a5a2b" stroke-width="4"/>` : ''}
     <!-- Schweif -->
     <path class="mascot-tail" d="M34 60 Q14 64 12 92 Q22 82 30 84 Q24 96 26 104 Q38 86 40 68 Z" fill="${c.mane}"/>
     ${leg(38, 'mascot-leg-l')}${leg(104, 'mascot-leg-r')}
-    ${leg(50, 'mascot-leg-r')}${leg(116, 'mascot-leg-l')}
+    ${leg(50, 'mascot-leg-r')}${leg(116, 'mascot-leg-l leg-front')}
     <!-- Körper -->
     <ellipse cx="80" cy="72" rx="46" ry="23" fill="${c.color}"/>
     <!-- Hals und Kopf -->
+    <g class="horse-head">
     <path d="M106 66 Q112 40 126 24 L142 30 Q132 50 124 78 Z" fill="${c.color}"/>
     <path d="M124 22 Q138 12 152 26 Q160 38 154 46 Q148 50 138 44 Q128 36 124 22 Z" fill="${c.color}"/>
     <ellipse cx="153" cy="42" rx="6" ry="5" fill="#f3c9b0"/>
@@ -157,8 +164,16 @@ function horseSvg() {
     <path d="M137 25 l-2 -3 M140 24 l-.5 -3.4 M143 24.5 l1 -3" fill="none" stroke-width="1.4"/>
     <path d="M151 46 Q154 49 157 46" fill="none" stroke-width="1.6"/>
     <circle cx="156" cy="40" r=".9" fill="#3b2a20" stroke="none"/>
+    ${on.bow ? `<!-- Schleife in der Mähne -->
+    <path d="M114 38 L106 32 L106 44 Z M114 38 L122 32 L122 44 Z" fill="#ff5fa2" stroke-width="1.6"/>
+    <circle cx="114" cy="38" r="2.6" fill="#ff8fc0" stroke-width="1.4"/>` : ''}
+    ${on.crown ? `<!-- Blumenkranz -->
+    <g stroke-width="1.2">${[[124, 20, '#ff8fc0'], [130, 13, '#ffd23f'], [137, 15, '#9be38a'], [144, 19, '#b48cff'], [120, 27, '#ffd23f']]
+      .map(([x, y, f]) => `<circle cx="${x}" cy="${y}" r="3.6" fill="${f}"/><circle cx="${x}" cy="${y}" r="1.2" fill="#fff" stroke="none"/>`).join('')}</g>` : ''}
+    </g>
     <!-- Satteldecke und Sattel -->
-    <path d="M60 50 Q80 46 100 50 L102 72 Q80 76 58 72 Z" fill="var(--primary, #e07a2f)"/>
+    <path d="M60 50 Q80 46 100 50 L102 72 Q80 76 58 72 Z" fill="${pad}"/>
+    ${on.stars ? `${star(68, 64)}${star(92, 64)}${star(80, 69, 3)}` : ''}
     <path d="M64 50 Q80 44 96 50 Q90 58 80 58 Q70 58 64 50 Z" fill="#7a4a24"/>
   </g>
 </svg>`;
