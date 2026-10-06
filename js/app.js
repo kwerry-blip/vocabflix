@@ -95,6 +95,7 @@ function defaultState() {
     },
     badges: {},
     unitPlates: {},
+    unitMeta: {}, // pro Unit: { testDate }
     week: null,
   };
 }
@@ -129,6 +130,7 @@ function load() {
         settings: migrateSettings({ ...d.settings, ...s.settings }, s.settings || {}),
         badges: { ...s.badges },
         unitPlates: { ...s.unitPlates },
+        unitMeta: { ...s.unitMeta },
         words: Array.isArray(s.words) ? s.words : [],
       };
     }
@@ -266,6 +268,20 @@ function unitStats(unit) {
   return { count: ws.length, safe, due: ws.filter(isDue).length, fresh: ws.filter(w => w.box === 0).length, progress };
 }
 
+// Karte „Mit Freunden“ – die Knöpfe für Duell, Team usw. ergänzt social.js
+function friendsCardHtml() {
+  const extra = typeof socialButtonsHtml === 'function' ? socialButtonsHtml() : '';
+  return `
+    <div class="card friends">
+      <h2>👥 Mit Freunden</h2>
+      ${extra}
+      <div class="row">
+        <button type="button" class="btn ghost" data-action="paste-link">📋 Link einfügen</button>
+        <button type="button" class="btn ghost" data-action="scan-qr">📷 QR scannen</button>
+      </div>
+    </div>`;
+}
+
 function greeting() {
   const h = new Date().getHours();
   if (h < 11) return 'Guten Morgen';
@@ -323,6 +339,7 @@ function renderHome() {
         <b>📲 Als App installieren</b>
         <p>In Safari unten auf <b>Teilen</b> <span class="share-icon">⬆︎</span> tippen und <b>„Zum Home-Bildschirm“</b> wählen. Dann startet der Trainer wie eine richtige App – auch ohne Internet.</p>
       </div>` : ''}
+    ${friendsCardHtml()}
     ${units.length ? `<h2 class="section-title">Deine Units</h2>` : ''}
     <div class="units">
       ${units.map(u => {
@@ -847,7 +864,10 @@ function finishLesson() {
   }, 500);
 }
 
-ACTIONS.finish = () => show('home');
+ACTIONS.finish = () => {
+  show('home');
+  if (typeof processPendingShare === 'function') processPendingShare();
+};
 
 function confetti() {
   const colors = ['#ff2bd6', '#00e5ff', '#b6ff3b', '#ffd400', '#8b5cff'];
@@ -919,6 +939,7 @@ function renderWordList() {
     <section class="unit-group">
       <div class="unit-head">
         <h2>${esc(g.unit)} <small>${g.words.length}</small></h2>
+        <button class="icon-btn" data-action="unit-share" data-unit="${esc(g.unit)}" aria-label="Unit teilen">📤</button>
         <button class="icon-btn" data-action="unit-rename" data-unit="${esc(g.unit)}" aria-label="Lektion umbenennen">✏️</button>
         <button class="icon-btn" data-action="unit-delete" data-unit="${esc(g.unit)}" aria-label="Lektion löschen">🗑️</button>
       </div>
@@ -1826,6 +1847,7 @@ ACTIONS['ob-next'] = () => {
   show('home');
   const name = state.settings.name;
   setTimeout(() => showMascot(`Hi${name ? ` ${name}` : ''}!`, 'Los geht’s!'), 300);
+  if (typeof processPendingShare === 'function') setTimeout(processPendingShare, 600);
 };
 
 ACTIONS['ob-back'] = () => {
