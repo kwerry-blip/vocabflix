@@ -857,3 +857,52 @@ dialog .stack h2 { margin: 0; }
 dialog { max-height: 88dvh; overflow-y: auto; overscroll-behavior: contain; }
 .import-list { max-height: 170px; }
 .import-list:focus { outline: none; }
+
+/* ---------- Mit Freunden ---------- */
+
+.social-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.social-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font: inherit; font-weight: 800; color: var(--text); cursor: pointer;
+  background: var(--bg-soft); border: 2px solid var(--line); border-bottom-width: 4px; border-radius: var(--radius); padding: 12px 6px;
+}
+.social-btn span { font-size: 28px; }
+.social-btn:active { transform: translateY(2px); border-bottom-width: 2px; }
+.sticker-log { margin: 8px 0 0; }
+.pick-list { display: flex; flex-direction: column; gap: 8px; }
+.pick-list .btn { justify-content: flex-start; text-align: left; }
+.team-card { border: 2px solid var(--violet); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+.team-card.done { border-color: var(--green); }
+.team-member { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 8px; }
+.team-member span { font-weight: 700; font-size: 15px; }
+.team-member .progress { grid-column: 1 / -1; margin-top: 4px; order: 3; }
+.team-member > small { font-weight: 700; color: var(--muted); }
+.duel-card { text-align: center; }
+.duel-head { font-size: 22px; font-weight: 900; margin-bottom: 8px; }
+.duel-vs { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 6px 0 10px; }
+.duel-vs div { flex: 1; border: 2px solid var(--line); border-radius: var(--radius); padding: 10px 6px; display: flex; flex-direction: column; }
+.duel-vs div.win { border-color: var(--gold); box-shadow: 0 0 16px rgba(255, 212, 0, .3); }
+.duel-vs b { font-size: 26px; }
+.duel-vs i { font-style: normal; font-weight: 900; color: var(--primary); }
+.duel-actions { margin-bottom: 14px; }
+.sticker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sticker { font: inherit; color: var(--text); background: var(--bg-soft); border: 2px solid var(--line); border-radius: 14px; padding: 10px 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
+.sticker span { font-size: 34px; }
+.sticker small { font-size: 12px; font-weight: 700; text-align: center; line-height: 1.2; }
+.sticker-pop {
+  position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%);
+  z-index: 70; pointer-events: none; text-align: center;
+  background: var(--card); border: 3px solid var(--gold); border-radius: 24px; padding: 18px 26px;
+  box-shadow: 0 0 40px rgba(255, 212, 0, .45);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  animation: sticker-pop 3.2s ease-out forwards;
+}
+.sticker-pop span { font-size: 72px; line-height: 1; }
+.sticker-pop b { font-size: 22px; }
+.sticker-pop small { color: var(--muted); font-weight: 700; }
+@keyframes sticker-pop {
+  0% { transform: translate(-50%, -50%) scale(.2) rotate(-12deg); opacity: 0; }
+  12% { transform: translate(-50%, -50%) scale(1.1) rotate(4deg); opacity: 1; }
+  20%, 85% { transform: translate(-50%, -50%) scale(1) rotate(0); opacity: 1; }
+  100% { transform: translate(-50%, -60%) scale(.9); opacity: 0; }
+}

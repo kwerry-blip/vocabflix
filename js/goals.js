@@ -27,6 +27,11 @@ const SERIES = [
   { id: 'fixed', icon: '🛟', name: 'Fehlerjäger', unit: 'Fehler ausgebügelt', tiers: [10, 50, 150, 300], value: s => s.stats.fixed || 0 },
   { id: 'scans', unitOne: 'Seite erfasst', icon: '📷', name: 'Scanner', unit: 'Seiten erfasst', tiers: [1, 5, 15, 30], value: s => s.stats.scans || 0 },
   { id: 'weekly', unitOne: 'Wochen-Challenge', icon: '🗓️', name: 'Wochen-Champion', unit: 'Wochen-Challenges', tiers: [1, 5, 10, 20, 30, 40], value: s => s.stats.weeklyDone || 0 },
+  { id: 'duels', unitOne: 'Duell gespielt', icon: '⚔️', name: 'Duellant', unit: 'Duelle gespielt', tiers: [1, 5, 15, 30], value: s => s.stats.duels || 0 },
+  { id: 'duelWins', unitOne: 'Duell gewonnen', icon: '🏆', name: 'Duell-Champion', unit: 'Duelle gewonnen', tiers: [1, 5, 15], value: s => s.stats.duelWins || 0 },
+  { id: 'teams', unitOne: 'Team-Woche geschafft', icon: '👥', name: 'Teamplayer', unit: 'Team-Wochen geschafft', tiers: [1, 3, 10], value: s => s.stats.teams || 0 },
+  { id: 'helped', unitOne: 'Mal geholfen', icon: '🤝', name: 'Helfer-Herz', unit: 'Mal Freunden geholfen', tiers: [1, 5, 15], value: s => s.stats.helped || 0 },
+  { id: 'shared', unitOne: 'Unit geteilt', icon: '📤', name: 'Vokabel-Teiler', unit: 'Units geteilt', tiers: [1, 5, 10], value: s => s.stats.unitsShared || 0 },
   { id: 'plates', unitOne: 'Unit in Gold', icon: '🥇', name: 'Gold-Sammler', unit: 'Units in Gold', tiers: [1, 3, 6, 10], value: () => countPlates('gold') },
 ];
 

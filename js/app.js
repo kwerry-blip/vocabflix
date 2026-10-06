@@ -153,7 +153,8 @@ function save() {
   }
 }
 
-const wordById = id => state.words.find(w => w.id === id);
+// Wörter einer besonderen Runde (z. B. aus einem Duell-Link) liegen nur in lesson.temp
+const wordById = id => (lesson && lesson.temp && lesson.temp.get(id)) || state.words.find(w => w.id === id);
 const isDue = w => w.box > 0 && w.due <= Date.now();
 
 function unitList() {
@@ -420,9 +421,14 @@ function startLesson(unit) {
   if (matchable.length >= 4) {
     items.splice(Math.ceil(items.length / 2), 0, { type: 'match', ids: matchable.map(w => w.id) });
   }
+  beginLesson({ unit, items });
+}
+
+function beginLesson({ unit = null, items, ...extra }) {
   lesson = {
     unit, queue: items, total: items.length, done: 0, xp: 0, combo: 0,
     graded: new Set(), correctFirst: 0, missed: new Set(), current: null, locked: false, lastOk: true, maxCombo: 0, families: new Set(),
+    startedAt: Date.now(), ...extra,
   };
   document.body.classList.add('in-lesson');
   if (state.settings.beat) {
@@ -435,6 +441,22 @@ function startLesson(unit) {
     } catch (e) { /* ohne Beat weiter */ }
   }
   renderStep();
+}
+
+/* Besondere Runde mit vorgegebenen Wörtern (Duell, Hilfe-Paket, Testmodus).
+   pairs: [[en, de], …]; bekannte Wörter werden mit der eigenen Liste verknüpft, damit der Lernstand mitzählt.
+   opts: { mode, types?, noRequeue?, resultHtml(result)?, onFinish(result)?, mascot(result)? } */
+function startCustomRound(pairs, opts = {}) {
+  const temp = new Map();
+  const words = pairs.map(([en, de], i) => {
+    const known = state.words.find(w => normalize(w.en) === normalize(en) && normalize(w.de) === normalize(de));
+    if (known) return known;
+    const w = { ...newWord(en, de, opts.unit || ''), id: `tmp-${i}-${uid()}`, temp: true };
+    temp.set(w.id, w);
+    return w;
+  });
+  const items = words.map((w, i) => ({ type: (opts.types && opts.types[i]) || chooseType(w), id: w.id }));
+  beginLesson({ unit: opts.unit || null, items, temp, ...opts });
 }
 
 function lessonShell(inner, footer = '') {
@@ -506,8 +528,9 @@ function renderStep() {
 function distractorsFor(word, key, n) {
   const target = normalize(word[key]);
   const valid = w => w.id !== word.id && normalize(w[key]) !== target && w[key];
-  const sameUnit = shuffle(state.words.filter(w => w.unit === word.unit && valid(w)));
-  const others = shuffle(state.words.filter(w => w.unit !== word.unit && valid(w)));
+  const pool = [...state.words, ...(lesson && lesson.temp ? lesson.temp.values() : [])];
+  const sameUnit = shuffle(pool.filter(w => w.unit === word.unit && valid(w)));
+  const others = shuffle(pool.filter(w => w.unit !== word.unit && valid(w)));
   return uniqueBy([...sameUnit, ...others], key).slice(0, n);
 }
 
@@ -631,8 +654,8 @@ function grade(w, ok) {
   lesson.graded.add(w.id);
   if (ok) {
     lesson.correctFirst++;
-    if (!w.right) currentWeek().newWords++;
-    if (w.wrong) state.stats.fixed = (state.stats.fixed || 0) + 1;
+    if (!w.temp && !w.right) currentWeek().newWords++;
+    if (!w.temp && w.wrong) state.stats.fixed = (state.stats.fixed || 0) + 1;
     w.right++;
     w.box = Math.min(MAX_BOX, w.box + 1);
     w.due = startOfToday() + INTERVAL_DAYS[w.box] * DAY;
@@ -664,6 +687,7 @@ function answer(result) {
   } else {
     lesson.combo = 0;
     lesson.missed.add(w.id);
+    if (lesson.noRequeue) lesson.done++; // ohne Wiederholung zählt auch eine falsche Antwort als erledigt
   }
   updateLessonTop();
   let body = '';
@@ -689,7 +713,7 @@ function updateLessonTop() {
 
 ACTIONS.next = () => {
   const item = lesson.queue.shift();
-  if (!lesson.lastOk) lesson.queue.push(item); // falsche Wörter kommen am Ende nochmal
+  if (!lesson.lastOk && !lesson.noRequeue) lesson.queue.push(item); // falsche Wörter kommen am Ende nochmal
   renderStep();
 };
 
@@ -699,6 +723,7 @@ ACTIONS['quit-lesson'] = () => {
   stopBeat();
   if (canSpeak()) speechSynthesis.cancel();
   show('home');
+  if (typeof processPendingShare === 'function') processPendingShare();
 };
 
 /* Paare finden */
@@ -812,12 +837,16 @@ function finishLesson() {
   });
   const missed = [...lesson.missed].map(wordById).filter(Boolean);
   const maxCombo = lesson.maxCombo;
+  // Besondere Runden (Duell, Hilfe-Paket, Test) ergänzen den Ergebnis-Bildschirm
+  const result = { score: lesson.correctFirst, total: graded, ms: Date.now() - lesson.startedAt, perfect, accuracy, xp };
+  const custom = lesson.onFinish ? (lesson.onFinish(result) || {}) : {};
   lesson = null;
 
   view.innerHTML = `
     <div class="result">
       <div class="result-emoji">${perfect ? '🏆' : accuracy >= 70 ? vibe().icon : '💪'}</div>
-      <h1>${perfect ? vibe().perfect : vibe().done}</h1>
+      <h1>${custom.title || (perfect ? vibe().perfect : vibe().done)}</h1>
+      ${custom.html || ''}
       ${rankAfter.index > rankBefore.index ? `
         <div class="card levelup">
           <div class="levelup-icon">${rankAfter.icon}</div>
@@ -856,7 +885,8 @@ function finishLesson() {
   if (perfect || goalReachedNow || newBadges.length || newPlates.length || weeklyNow || rankAfter.index > rankBefore.index) confetti();
   const topPlate = newPlates[newPlates.length - 1];
   setTimeout(() => {
-    if (topPlate) showMascot(`${topPlate.plate.name.toUpperCase()}! ${topPlate.plate.icon}`, topPlate.unit);
+    if (custom.mascot) showMascot(...custom.mascot);
+    else if (topPlate) showMascot(`${topPlate.plate.name.toUpperCase()}! ${topPlate.plate.icon}`, topPlate.unit);
     else if (rankAfter.index > rankBefore.index) showMascot('LEVEL UP!', `${rankAfter.icon} ${rankAfter.name}`);
     else if (weeklyNow) showMascot('CHALLENGE ✓', 'Wochenziel geschafft!');
     else if (perfect) showMascot(`+${xp} XP`, '💎 Fehlerfrei!');
