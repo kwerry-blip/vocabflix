@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6a2cff"/><stop offset=".55" stop-color="#ff2bd6"/><stop offset="1" stop-color="#ff9a3c"/>
+    </linearGradient>
+    <linearGradient id="play" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff2bd6"/><stop offset="1" stop-color="#6a2cff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- Sprechblase -->
+  <path d="M120 120 h272 a48 48 0 0 1 48 48 v150 a48 48 0 0 1 -48 48 h-150 l-74 62 v-62 h-48 a48 48 0 0 1 -48 -48 v-150 a48 48 0 0 1 48 -48 z" fill="#fff"/>
+  <!-- Play -->
+  <path d="M222 178 L222 310 L332 244 Z" fill="url(#play)" stroke="url(#play)" stroke-width="22" stroke-linejoin="round"/>
+  <!-- Schallwellen -->
+  <g fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round" opacity=".9">
+    <path d="M430 410 q22 -22 0 -44"/>
+    <path d="M462 432 q44 -44 0 -88"/>
+  </g>
+</svg>
