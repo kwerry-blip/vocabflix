@@ -143,7 +143,7 @@ function newDuelRound(duel) {
   const pool = shuffle(state.words.filter(w => w.unit === duel.unit)).slice(0, DUEL_SIZE);
   const source = pool.length >= 4 ? pool : null;
   const w = source ? source.map(x => [x.en, x.de]) : shuffle(duel.rounds[r - 1].w);
-  const ty = (source || w.map(([en, de]) => ({ box: 1, en, de }))).map(x => chooseType(x).replace('listen_type', 'type_de_en'));
+  const ty = mixDirections((source || w.map(([en, de]) => ({ box: 1, en, de }))).map(x => chooseType(x).replace('listen_type', 'type_de_en')));
   duel.rounds[r] = { w, ty };
   return r;
 }

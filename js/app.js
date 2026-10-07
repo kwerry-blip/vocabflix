@@ -419,6 +419,27 @@ function chooseTypeRaw(w) {
   return pick(speech ? ['type_de_en', 'type_de_en', 'type_en_de', 'listen_type'] : ['type_de_en', 'type_en_de']);
 }
 
+// Übersetzungsrichtung mischen: In jeder Runde kommt etwa die Hälfte Englisch → Deutsch und die Hälfte Deutsch → Englisch.
+// Umgedreht werden zuerst Wörter, die das Kind schon kennt; ganz neue Wörter bleiben möglichst Englisch → Deutsch.
+const FLIP_DIRECTION = { mc_en_de: 'mc_de_en', mc_de_en: 'mc_en_de', type_en_de: 'type_de_en', type_de_en: 'type_en_de' };
+const directionOf = t => (t === 'mc_en_de' || t === 'type_en_de' ? 'en' : t === 'mc_de_en' || t === 'type_de_en' ? 'de' : null);
+
+function mixDirections(types, isNew = () => false) {
+  const out = [...types];
+  const idx = out.map((t, i) => i).filter(i => directionOf(out[i]));
+  const want = Math.floor(idx.length / 2);
+  for (const dir of ['en', 'de']) {
+    let have = idx.filter(i => directionOf(out[i]) === dir).length;
+    const candidates = shuffle(idx.filter(i => directionOf(out[i]) !== dir)).sort((a, b) => isNew(a) - isNew(b));
+    while (have < want && candidates.length) {
+      const i = candidates.shift();
+      out[i] = FLIP_DIRECTION[out[i]];
+      have++;
+    }
+  }
+  return out;
+}
+
 function uniqueBy(words, key) {
   const seen = new Set();
   return words.filter(w => {
@@ -436,7 +457,8 @@ function startLesson(unit) {
   }
   const words = pickWords(unit);
   if (!words.length) return;
-  const items = words.map(w => ({ type: chooseType(w), id: w.id }));
+  const types = mixDirections(words.map(chooseType), i => words[i].box === 0 && !words[i].right && !words[i].wrong);
+  const items = words.map((w, i) => ({ type: types[i], id: w.id }));
   const matchable = uniqueBy(uniqueBy(words, 'en'), 'de').slice(0, 5);
   if (matchable.length >= 4) {
     items.splice(Math.ceil(items.length / 2), 0, { type: 'match', ids: matchable.map(w => w.id) });
@@ -575,11 +597,13 @@ function renderChoice(item) {
   const key = item.type === 'mc_en_de' ? 'de' : 'en';
   const options = shuffle([w, ...distractorsFor(w, key, 3)]);
   let title, prompt;
+  const isNew = w.box === 0 && !w.right && !w.wrong;
+  const badge = isNew ? '<span class="badge">NEUES WORT</span> ' : '';
   if (item.type === 'mc_en_de') {
-    title = w.box === 0 && !w.right && !w.wrong ? '<span class="badge">NEUES WORT</span> Was bedeutet das?' : 'Was bedeutet das?';
+    title = `${badge}Was bedeutet das?`;
     prompt = englishPrompt(w);
   } else if (item.type === 'mc_de_en') {
-    title = 'Wie heißt das auf Englisch?';
+    title = `${badge}Wie heißt das auf Englisch?`;
     prompt = `<div class="prompt-word">${esc(w.de)}</div>`;
   } else {
     title = 'Welches Wort hörst du?';
