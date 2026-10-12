@@ -617,6 +617,25 @@ input[type=range] { padding: 0; accent-color: var(--primary); background: none; 
 .crop-handle.ne { right: -16px; top: -16px; cursor: nesw-resize; }
 .crop-handle.sw { left: -16px; bottom: -16px; cursor: nesw-resize; }
 .crop-handle.se { right: -16px; bottom: -16px; cursor: nwse-resize; }
+/* Schritt 2: zwei Spalten-Rahmen, Englisch blau, Deutsch orange */
+.crop-stage.columns .crop-box { box-shadow: none; background: rgba(255, 255, 255, .08); }
+.crop-stage.columns::after { content: ''; position: absolute; inset: 0; background: rgba(0, 0, 0, .35); pointer-events: none; z-index: 0; }
+.crop-box { z-index: 1; }
+.crop-box.front { z-index: 2; }
+.crop-box.en { border-color: #2f8cff; box-shadow: 0 0 12px #2f8cff; }
+.crop-box.de { border-color: #ff9a2f; box-shadow: 0 0 12px #ff9a2f; }
+.crop-box.en .crop-handle { background: #2f8cff; box-shadow: 0 0 8px #2f8cff; }
+.crop-box.de .crop-handle { background: #ff9a2f; box-shadow: 0 0 8px #ff9a2f; }
+.crop-stage.columns .crop-handle { width: 26px; height: 26px; }
+.crop-label {
+  position: absolute; top: 4px; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font-size: 11px; font-weight: 900; color: #fff; padding: 1px 7px; border-radius: 99px; background: #2f8cff; opacity: .85;
+}
+.crop-box.de .crop-label { background: #ff9a2f; color: #2a1600; }
+.crop-steps { display: flex; gap: 8px; }
+.crop-steps:empty { display: none; }
+.crop-steps span { flex: 1; text-align: center; font-weight: 800; font-size: 14px; padding: 6px; border-radius: 10px; background: var(--bg-soft); color: var(--muted); }
+.crop-steps span.on { background: var(--sel-bg); color: var(--text); outline: 2px solid var(--primary); }
 
 /* ---------- Figur mit der Punktetafel ---------- */
 

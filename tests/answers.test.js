@@ -80,62 +80,97 @@ function line(y, parts, { conf = 95, h = 20, tilt = 0 } = {}) {
   return { words, baseline: { x0: words[0].x0, y0: words[0].y1, x1: words[words.length - 1].x1, y1: words[words.length - 1].y1 } };
 }
 
-test('Spaltenlayout: Lautschrift, Beispielsätze, zweizeilige Übersetzung, Überschrift', () => {
-  const { parseOcrLines } = require('../js/answers.js');
-  const lines = [
-    line(0, [['Focus on language', 40]]),
-    line(40, [["city ['sɪti]", 50], ['(Groß-)Stadt', 300], ['one city - two cities', 600]]),
-    line(80, [['it starts', 50], ['er/sie/es beginnt;', 300]]),
-    line(105, [['er/sie/es fängt an', 300]]),
-    line(145, [['start [stɑːt]', 50], ['anfangen, beginnen', 300]]),
-    line(185, [['with [wɪð]', 50], ['mit', 300]]),
-    line(225, [["people ['pi:pl]", 50], ['Leute, Menschen', 300], ['The people in Plymouth are nice.', 600]]),
+test('Deutsche Übersetzung: typische Lesefehler', () => {
+  const { cleanGerman } = require('../js/answers.js');
+  assert.equal(cleanGerman('(Groß-JStadt'), '(Groß-)Stadt');
+  assert.equal(cleanGerman('(Groß -)Stadt'), '(Groß-)Stadt');
+  assert.equal(cleanGerman('anfangen. beginnen'), 'anfangen, beginnen');
+  assert.equal(cleanGerman('er/sieres fängt an'), 'er/sie/es fängt an');
+  assert.equal(cleanGerman('Bücher an, |'), 'Bücher an');
+  assert.equal(cleanGerman('Erde'), 'Erde');
+});
+
+// Zeile wie aus der Texterkennung: Wörter mit Lage im Foto, optional schräg
+function ocrLine(y, x, text, { tilt = 0, conf = 90 } = {}) {
+  const words = [];
+  let cx = x;
+  for (const t of text.split(' ')) {
+    const w = t.length * 9;
+    words.push({ text: t, conf, x0: cx, y0: y + cx * tilt, x1: cx + w, y1: y + cx * tilt + 14 });
+    cx += w + 5;
+  }
+  const last = words[words.length - 1];
+  return { text, conf, x0: x, y0: words[0].y0, x1: last.x1, y1: last.y1,
+    bl: { x0: x, y0: words[0].y1, x1: last.x1, y1: last.y1 }, words };
+}
+
+test('Spalten zusammensetzen: Lautschrift, zweizeilige Übersetzung, Schräglage', () => {
+  const { pairColumns } = require('../js/answers.js');
+  const tilt = -0.05; // rechts deutlich höher als links
+  const en = [
+    ocrLine(40, 50, "city ['sɪti]", { tilt }),
+    ocrLine(80, 50, 'it starts', { tilt }),
+    ocrLine(120, 50, 'start [stɑːt]', { tilt }),
+    ocrLine(160, 50, "people ['pi:pl]", { tilt }),
   ];
-  assert.deepEqual(parseOcrLines(lines), [
+  const de = [
+    ocrLine(40, 300, '(Groß-)Stadt', { tilt }),
+    ocrLine(72, 300, 'er/sie/es beginnt;', { tilt }),
+    ocrLine(88, 300, 'er/sie/es fängt an', { tilt }),
+    ocrLine(120, 300, 'anfangen, beginnen', { tilt }),
+    ocrLine(160, 300, 'Leute, Menschen', { tilt }),
+  ];
+  assert.deepEqual(pairColumns(en, de).map(({ en, de }) => ({ en, de })), [
     { en: 'city', de: '(Groß-)Stadt' },
     { en: 'it starts', de: 'er/sie/es beginnt; er/sie/es fängt an' },
     { en: 'start', de: 'anfangen, beginnen' },
-    { en: 'with', de: 'mit' },
     { en: 'people', de: 'Leute, Menschen' },
   ]);
 });
 
-test('Spaltenlayout: schräg fotografierte Seite', () => {
-  const { parseOcrLines } = require('../js/answers.js');
-  const tilt = -0.03; // rechts ~20px höher als links
-  const lines = [
-    line(40, [['school [skuːl]', 50], ['Schule', 300], ['I like my school.', 600]], { tilt }),
-    line(80, [['friend [frend]', 50], ['Freund', 300], ['He is my friend.', 600]], { tilt }),
-    line(120, [['teacher', 50], ['Lehrer', 300], ['Our teacher is nice.', 600]], { tilt }),
+test('Zu groß gezogener Rahmen: Beispielsätze und Bildreste fliegen raus', () => {
+  const { pairColumns } = require('../js/answers.js');
+  const en = [ocrLine(40, 50, 'but [bʌt]'), ocrLine(80, 50, 'place [pleɪs]'), ocrLine(120, 50, 'make [meɪk]')];
+  const de = [
+    ocrLine(40, 300, 'aber Luca is ten, but Jack is fourteen.'),
+    ocrLine(80, 300, 'Ort, Platz, Stelle Plymouth is a great place.'),
+    ocrLine(120, 300, 'machen, herstellen'),
+    ocrLine(150, 300, 'ME Un SO A nl', { conf: 20 }),
   ];
-  assert.deepEqual(parseOcrLines(lines), [
-    { en: 'school', de: 'Schule' },
-    { en: 'friend', de: 'Freund' },
-    { en: 'teacher', de: 'Lehrer' },
+  // Beispielsätze stehen weiter rechts: Lücke zwischen den Spalten
+  for (const l of de) {
+    let shift = 0;
+    for (const w of l.words) {
+      if (/^(Luca|Plymouth)$/.test(w.text)) shift = 250;
+      w.x0 += shift;
+      w.x1 += shift;
+    }
+  }
+  assert.deepEqual(pairColumns(en, de).map(({ en, de }) => ({ en, de })), [
+    { en: 'but', de: 'aber' },
+    { en: 'place', de: 'Ort, Platz, Stelle' },
+    { en: 'make', de: 'machen, herstellen' },
   ]);
 });
 
-test('Echte OCR-Daten eines Handyfotos (Lighthouse 1, S. 186)', () => {
-  const { parseOcrLines } = require('../js/answers.js');
-  const pairs = parseOcrLines(require('./fixtures/lighthouse1-s186-ocr.json'));
-  const has = (en, de) => pairs.some(p => p.en === en && p.de === de);
-  assert.ok(has('but', 'aber'), JSON.stringify(pairs));
-  assert.ok(has('all (the)', 'alle'));
-  assert.ok(has('place', 'Ort, Platz, Stelle'));
-  assert.ok(has('make', 'machen, herstellen'));
-  assert.ok(has('for', 'für'));
-  // Beispielsätze dürfen nirgends als Übersetzung landen
-  assert.ok(!pairs.some(p => /Plymouth|friends|fourteen/.test(p.de)));
+test('Echte Daten: Spalten eines Handyfotos (Lighthouse 1, S. 186, Rahmen ungenau)', () => {
+  const { pairColumns } = require('../js/answers.js');
+  const { en, de } = require('./fixtures/lighthouse1-s186-spalten.json');
+  const pairs = pairColumns(en, de);
+  const has = (e, d) => pairs.some(p => p.en === e && p.de === d);
+  for (const [e, d] of [['with', 'mit'], ['classroom', 'Klassenzimmer'], ['yes', 'ja'], ['but', 'aber'], ['all (the)', 'alle'],
+    ['people', 'Leute, Menschen'], ['place', 'Ort, Platz, Stelle'], ['make', 'machen, herstellen'], ['for', 'für']]) {
+    assert.ok(has(e, d), `${e} → ${d} fehlt: ${JSON.stringify(pairs)}`);
+  }
+  assert.ok(!pairs.some(p => /Plymouth|friends|fourteen/.test(p.de)), 'Beispielsätze dürfen nicht als Übersetzung landen');
 });
 
-test('Echte OCR-Daten, in der App zugeschnitten (Lighthouse 1, S. 186)', () => {
-  const { parseOcrLines } = require('../js/answers.js');
-  const pairs = parseOcrLines(require('./fixtures/lighthouse1-s186-zugeschnitten-ocr.json'));
-  const has = (en, de) => pairs.some(p => p.en === en && p.de === de);
-  for (const [en, de] of [
-    ['start', 'anfangen beginnen'], ['classroom', 'Klassenzimmer'], ['yes', 'ja'], ['but', 'aber'],
-    ['all (the)', 'alle'], ['people', 'Leute, Menschen'], ['place', 'Ort, Platz, Stelle'], ['make', 'machen, herstellen'],
-  ]) assert.ok(has(en, de), `${en} = ${de} fehlt in ${JSON.stringify(pairs)}`);
+test('Echte Daten: Spaltenvorschlag aus dem ersten Lesedurchgang', () => {
+  const { suggestColumns } = require('../js/answers.js');
+  const cols = suggestColumns(require('./fixtures/lighthouse1-s186-uebersicht.json'));
+  // Englisch beginnt bei x≈117, Deutsch bei x≈386, Beispielsätze bei x≈687 – nicht in den Rahmen
+  assert.ok(cols.en.x0 < 130 && cols.en.x1 > 240 && cols.en.x1 < 386, JSON.stringify(cols.en));
+  assert.ok(cols.de.x0 > 370 && cols.de.x0 < 395 && cols.de.x1 > 540 && cols.de.x1 < 687, JSON.stringify(cols.de));
 });
 
 test('„Leichter tippen“ ist nachsichtiger, normal bleibt streng', () => {

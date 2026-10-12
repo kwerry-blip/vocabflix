@@ -1289,28 +1289,34 @@ function loadScript(src) {
   });
 }
 
-let ocrWorkerPromise = null;
+/* ---------- Texterkennung ----------
+   Ablauf: 1. Rahmen um die Vokabelliste ziehen. 2. Im vergrößerten Ausschnitt je einen Rahmen um die englische
+   und die deutsche Spalte (die App schlägt beide vor). Jede Spalte wird für sich mit der passenden Sprache gelesen
+   und danach Zeile für Zeile wieder zu Paaren zusammengesetzt (pairColumns in answers.js). */
+
+const ocrWorkers = {};
 let ocrLogger = null;
-function getOcrWorker() {
-  if (!ocrWorkerPromise) {
-    ocrWorkerPromise = (async () => {
+function getOcrWorker(lang) {
+  if (!ocrWorkers[lang]) {
+    ocrWorkers[lang] = (async () => {
       if (!window.Tesseract) await loadScript(OCR_BASE + 'tesseract.min.js');
       const base = new URL(OCR_BASE, location.href).href;
-      const worker = await Tesseract.createWorker(['eng', 'deu'], 1, {
+      const worker = await Tesseract.createWorker(lang, 1, {
         workerPath: base + 'worker.min.js',
         corePath: base,
         langPath: base + 'lang',
         workerBlobURL: false,
         logger: m => ocrLogger && ocrLogger(m),
       });
-      await worker.setParameters({ preserve_interword_spaces: '1' });
+      // PSM 6: ein einheitlicher Textblock – passt am besten zu einer einzelnen Vokabelspalte
+      await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', user_defined_dpi: '300' });
       return worker;
     })().catch(e => {
-      ocrWorkerPromise = null;
+      delete ocrWorkers[lang];
       throw e;
     });
   }
-  return ocrWorkerPromise;
+  return ocrWorkers[lang];
 }
 
 const OCR_STATUS = {
@@ -1318,7 +1324,6 @@ const OCR_STATUS = {
   'initializing tesseract': 'Texterkennung startet …',
   'loading language traineddata': 'Sprachdaten werden geladen …',
   'initializing api': 'Fast bereit …',
-  'recognizing text': 'Text wird gelesen …',
 };
 
 function setOcrStatus(text, progress) {
@@ -1329,9 +1334,11 @@ function setOcrStatus(text, progress) {
   if (progress != null) $('#ocr-bar').style.width = `${Math.round(progress * 100)}%`;
 }
 
-/* Zuschneiden: Nach dem Foto zieht man einen Rahmen um die Vokabeln. */
+/* Zuschneiden */
 
-let crop = null; // { img, rot, rect: {x, y, w, h} als Anteile 0..1 }
+// crop = { img, rot, step, rect, boxes: { en, de } } – Rechtecke als Anteile 0..1;
+// rect bezieht sich aufs ganze Foto, boxes auf den Ausschnitt rect.
+let crop = null;
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -1343,23 +1350,31 @@ function loadImage(file) {
   });
 }
 
+// Größe des gedrehten Fotos in Pixeln
+function turnedSize(img, rot) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  return rot % 180 ? { w: ih, h: iw } : { w: iw, h: ih };
+}
+
 // Bild gedreht und zugeschnitten in ein Canvas zeichnen; maxSide begrenzt die Größe (auch Vergrößern ist erlaubt).
+// canvas.map rechnet Canvas-Pixel zurück in Pixel des (gedrehten) Fotos.
 function renderCrop(img, rot, rect, maxSide, maxUpscale) {
   const iw = img.naturalWidth, ih = img.naturalHeight;
-  const turned = rot % 180 !== 0;
-  const fullW = turned ? ih : iw, fullH = turned ? iw : ih;
-  const cw = fullW * rect.w, ch = fullH * rect.h;
-  const scale = Math.min(maxUpscale, maxSide / Math.max(cw, ch));
+  const full = turnedSize(img, rot);
+  const cw = full.w * rect.w, ch = full.h * rect.h;
+  // iPhones begrenzen die Canvas-Fläche – deshalb höchstens ca. 12 Megapixel
+  const scale = Math.min(maxUpscale, maxSide / Math.max(cw, ch), Math.sqrt(12e6 / (cw * ch)));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(cw * scale));
   canvas.height = Math.max(1, Math.round(ch * scale));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
   ctx.scale(scale, scale);
-  ctx.translate(-fullW * rect.x, -fullH * rect.y);
-  ctx.translate(fullW / 2, fullH / 2);
+  ctx.translate(-full.w * rect.x, -full.h * rect.y);
+  ctx.translate(full.w / 2, full.h / 2);
   ctx.rotate(rot * Math.PI / 180);
   ctx.drawImage(img, -iw / 2, -ih / 2);
+  canvas.map = (x, y) => ({ x: x / scale + full.w * rect.x, y: y / scale + full.h * rect.y });
   return canvas;
 }
 
@@ -1389,11 +1404,44 @@ function enhanceForOcr(canvas) {
   return canvas;
 }
 
+/* Spalten vorschlagen: ein schneller erster Lesedurchgang über die ganze Liste liefert die Lage der Wörter,
+   daraus ergeben sich die Spalten (suggestColumns in answers.js). Ohne Ergebnis: einfach links/rechts teilen. */
+async function suggestBoxes() {
+  const fallback = { en: { x: 0.02, y: 0.02, w: 0.44, h: 0.96 }, de: { x: 0.5, y: 0.02, w: 0.46, h: 0.96 } };
+  try {
+    const canvas = enhanceForOcr(renderCrop(crop.img, crop.rot, crop.rect, 1800, 2));
+    const worker = await getOcrWorker('eng');
+    await worker.setParameters({ tessedit_pageseg_mode: '3' }); // automatisch: findet auch mehrere Spalten
+    let data;
+    try {
+      ({ data } = await worker.recognize(canvas, {}, { blocks: true }));
+    } finally {
+      await worker.setParameters({ tessedit_pageseg_mode: '6' });
+    }
+    const cols = suggestColumns(ocrLines(data, canvas));
+    if (!cols) return fallback;
+    const full = turnedSize(crop.img, crop.rot);
+    const r = crop.rect;
+    const pad = cols.wordH;
+    const frac = b => {
+      const x0 = Math.max(0, (b.x0 - pad * 0.6 - full.w * r.x) / (full.w * r.w));
+      const x1 = Math.min(1, (b.x1 + pad * 0.25 - full.w * r.x) / (full.w * r.w));
+      const y0 = Math.max(0, (b.y0 - pad - full.h * r.y) / (full.h * r.h));
+      const y1 = Math.min(1, (b.y1 + pad - full.h * r.y) / (full.h * r.h));
+      return { x: x0, y: y0, w: Math.max(0.06, x1 - x0), h: Math.max(0.06, y1 - y0) };
+    };
+    return { en: frac(cols.en), de: frac(cols.de) };
+  } catch (e) {
+    console.error(e);
+    return fallback;
+  }
+}
+
 async function openCropper(file) {
   try {
     const img = await loadImage(file);
     if (crop) URL.revokeObjectURL(crop.img.src);
-    crop = { img, rot: 0, rect: { x: 0.04, y: 0.04, w: 0.92, h: 0.92 } };
+    crop = { img, rot: 0, step: 1, rect: { x: 0.04, y: 0.04, w: 0.92, h: 0.92 }, boxes: null };
     renderCropper();
   } catch (e) {
     setOcrStatus('❌ Das Bild konnte nicht geöffnet werden.', 0);
@@ -1408,48 +1456,73 @@ function closeCropper() {
   $('.file-btn')?.classList.remove('hidden');
 }
 
+const cropBoxHtml = (key, label) => `
+  <div class="crop-box ${key}" data-box="${key}" data-drag="move">
+    ${label ? `<span class="crop-label">${label}</span>` : ''}
+    ${['nw', 'ne', 'sw', 'se'].map(c => `<i class="crop-handle ${c}" data-drag="${c}"></i>`).join('')}
+  </div>`;
+
 function renderCropper() {
   const box = $('#cropper');
   if (!box || !crop) return;
   $('.file-btn')?.classList.add('hidden');
+  const both = draft.mode === 'both';
+  const columns = crop.step === 2;
   box.innerHTML = `
-    <div class="crop-stage" id="crop-stage">
+    <div class="crop-steps">${both ? `<span class="${columns ? '' : 'on'}">1 · Vokabelliste</span><span class="${columns ? 'on' : ''}">2 · Spalten</span>` : ''}</div>
+    <div class="crop-stage ${columns ? 'columns' : ''}" id="crop-stage">
       <canvas id="crop-canvas"></canvas>
-      <div class="crop-box" id="crop-box" data-drag="move">
-        ${['nw', 'ne', 'sw', 'se'].map(c => `<i class="crop-handle ${c}" data-drag="${c}"></i>`).join('')}
-      </div>
+      ${columns ? cropBoxHtml('en', '🇬🇧 Englisch') + cropBoxHtml('de', '🇩🇪 Deutsch') : cropBoxHtml('rect', '')}
     </div>
-    <p class="hint">✂️ Zieh den Rahmen nur um die Vokabelspalten – ohne Bilder, ohne Beispielsätze, ohne die Nachbarseite.</p>
+    <p class="hint">${columns
+      ? '✂️ Passt der <b>blaue</b> Rahmen um die englischen Wörter und der <b>orange</b> um die deutschen? Sonst kurz verschieben. Beispielsätze und Bilder bitte weglassen.'
+      : both
+        ? '✂️ Zieh den Rahmen um die ganze Vokabelliste – ohne die Nachbarseite. Im nächsten Schritt geht es um die Spalten.'
+        : '✂️ Zieh den Rahmen nur um die Wörter – ohne Bilder, ohne Beispielsätze, ohne die Nachbarseite.'}</p>
     <div class="row">
-      <button type="button" class="btn ghost" data-action="crop-rotate">↻ Drehen</button>
+      ${columns
+        ? '<button type="button" class="btn ghost" data-action="crop-back">← Zurück</button>'
+        : '<button type="button" class="btn ghost" data-action="crop-rotate">↻ Drehen</button>'}
       <button type="button" class="btn ghost" data-action="crop-cancel">Abbrechen</button>
     </div>
-    <button type="button" class="btn big" data-action="crop-ocr">🔍 Text erkennen</button>`;
-  // Vorschau in Bildschirmgröße zeichnen
-  const preview = renderCrop(crop.img, crop.rot, { x: 0, y: 0, w: 1, h: 1 }, 1200, 1);
+    ${both && !columns
+      ? '<button type="button" class="btn big" data-action="crop-next">Weiter → Spalten</button>'
+      : '<button type="button" class="btn big" data-action="crop-ocr">🔍 Text erkennen</button>'}`;
+  // Vorschau: im 1. Schritt das ganze Foto, im 2. Schritt der vergrößerte Ausschnitt
+  const preview = columns
+    ? renderCrop(crop.img, crop.rot, crop.rect, 1400, 2)
+    : renderCrop(crop.img, crop.rot, { x: 0, y: 0, w: 1, h: 1 }, 1200, 1);
   const canvas = $('#crop-canvas');
   canvas.width = preview.width;
   canvas.height = preview.height;
   canvas.getContext('2d').drawImage(preview, 0, 0);
-  placeCropBox();
+  placeCropBoxes();
   bindCropDrag();
 }
 
-function placeCropBox() {
-  const r = crop.rect, el = $('#crop-box');
-  Object.assign(el.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` });
+const cropRects = () => (crop.step === 2 ? crop.boxes : { rect: crop.rect });
+
+function placeCropBoxes() {
+  for (const [key, r] of Object.entries(cropRects())) {
+    const el = $(`.crop-box[data-box="${key}"]`);
+    if (el) Object.assign(el.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` });
+  }
 }
 
 function bindCropDrag() {
   const stage = $('#crop-stage');
-  const MIN = 0.08;
+  const MIN = 0.06;
   let drag = null;
   stage.addEventListener('pointerdown', e => {
     const mode = e.target.dataset.drag;
-    if (!mode) return;
+    const boxEl = e.target.closest('.crop-box');
+    if (!mode || !boxEl) return;
     e.preventDefault();
     stage.setPointerCapture(e.pointerId);
-    drag = { mode, x: e.clientX, y: e.clientY, start: { ...crop.rect }, bounds: stage.getBoundingClientRect() };
+    const key = boxEl.dataset.box;
+    // Der angefasste Rahmen kommt nach vorn, falls sich zwei überlappen
+    stage.querySelectorAll('.crop-box').forEach(b => b.classList.toggle('front', b === boxEl));
+    drag = { mode, key, x: e.clientX, y: e.clientY, start: { ...cropRects()[key] }, bounds: stage.getBoundingClientRect() };
   });
   stage.addEventListener('pointermove', e => {
     if (!drag) return;
@@ -1466,8 +1539,9 @@ function bindCropDrag() {
       if (drag.mode.includes('n')) { y = clamp(s.y + dy, 0, s.y + s.h - MIN); h = s.y + s.h - y; }
       if (drag.mode.includes('s')) { h = clamp(s.h + dy, MIN, 1 - s.y); }
     }
-    crop.rect = { x, y, w, h };
-    placeCropBox();
+    if (crop.step === 2) crop.boxes[drag.key] = { x, y, w, h };
+    else crop.rect = { x, y, w, h };
+    placeCropBoxes();
   });
   const end = () => { drag = null; };
   stage.addEventListener('pointerup', end);
@@ -1477,25 +1551,59 @@ function bindCropDrag() {
 ACTIONS['crop-rotate'] = () => {
   crop.rot = (crop.rot + 90) % 360;
   crop.rect = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
+  crop.boxes = null;
   renderCropper();
 };
-ACTIONS['crop-cancel'] = () => closeCropper();
+ACTIONS['crop-cancel'] = () => { if (!crop.busy) closeCropper(); };
+ACTIONS['crop-next'] = async el => {
+  if (crop.busy) return;
+  crop.busy = true;
+  el.disabled = true;
+  el.textContent = '🔎 Spalten werden gesucht …';
+  ocrLogger = m => {
+    if (m.status && m.status !== 'recognizing text') el.textContent = `🔎 ${OCR_STATUS[m.status] || 'Spalten werden gesucht …'}`;
+  };
+  const boxes = await suggestBoxes();
+  ocrLogger = null;
+  if (!crop) return; // inzwischen abgebrochen
+  crop.busy = false;
+  crop.step = 2;
+  crop.boxes = boxes;
+  renderCropper();
+};
+ACTIONS['crop-back'] = () => {
+  crop.step = 1;
+  renderCropper();
+};
 ACTIONS['crop-ocr'] = () => {
-  // Ausschnitt groß rechnen: kleine Schrift wird besser erkannt, wenn sie hochskaliert wird
-  const canvas = enhanceForOcr(renderCrop(crop.img, crop.rot, crop.rect, 3000, 3));
+  const { img, rot, rect } = crop;
+  // Spalten-Rahmen (relativ zum Ausschnitt) in Anteile des ganzen Fotos umrechnen
+  const inPhoto = b => ({ x: rect.x + b.x * rect.w, y: rect.y + b.y * rect.h, w: b.w * rect.w, h: b.h * rect.h });
+  const jobs = crop.step === 2
+    ? [{ side: 'en', lang: 'eng', rect: inPhoto(crop.boxes.en) }, { side: 'de', lang: 'deu', rect: inPhoto(crop.boxes.de) }]
+    : [{ side: draft.mode === 'de' ? 'de' : 'en', lang: draft.mode === 'de' ? 'deu' : 'eng', rect }];
+  // Ausschnitte groß rechnen: kleine Schrift wird besser erkannt, wenn sie hochskaliert wird
+  for (const job of jobs) job.canvas = enhanceForOcr(renderCrop(img, rot, job.rect, 2600, 3));
   closeCropper();
-  runOcr(canvas);
+  runOcr(jobs);
 };
 
-// Zeilen mit Wortpositionen aus dem Tesseract-Ergebnis holen
-function ocrLines(data) {
+// Zeilen mit Lage im Foto aus dem Tesseract-Ergebnis holen
+function ocrLines(data, canvas) {
+  const box = b => {
+    const p0 = canvas.map(b.x0, b.y0), p1 = canvas.map(b.x1, b.y1);
+    return { x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y };
+  };
   const lines = [];
   for (const block of data.blocks || []) {
     for (const par of block.paragraphs || []) {
       for (const line of par.lines || []) {
         lines.push({
-          baseline: line.baseline,
-          words: (line.words || []).map(w => ({ text: w.text, conf: w.confidence, ...w.bbox })),
+          text: line.text.trim(),
+          conf: line.confidence,
+          ...box(line.bbox),
+          bl: box(line.baseline),
+          words: (line.words || []).map(w => ({ text: w.text, conf: w.confidence, ...box(w.bbox) })),
         });
       }
     }
@@ -1503,45 +1611,49 @@ function ocrLines(data) {
   return lines;
 }
 
-async function runOcr(canvas) {
+async function runOcr(jobs) {
   setOcrStatus('Texterkennung startet …', 0);
   $('.file-btn')?.classList.add('busy');
+  const LABEL = { en: 'Englisch', de: 'Deutsch' };
   try {
-    ocrLogger = m => {
-      if (m.status) setOcrStatus(OCR_STATUS[m.status] || m.status, m.progress);
-    };
-    const worker = await getOcrWorker();
-    const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
-    applyOcrResult(data);
+    const result = {};
+    for (const [i, job] of jobs.entries()) {
+      const part = (p = 0) => (i + p) / jobs.length;
+      ocrLogger = m => {
+        if (m.status === 'recognizing text') setOcrStatus(`${LABEL[job.side]} wird gelesen …`, part(m.progress));
+        else if (m.status) setOcrStatus(OCR_STATUS[m.status] || m.status, part(0));
+      };
+      setOcrStatus(`${LABEL[job.side]} wird gelesen …`, part(0));
+      const worker = await getOcrWorker(job.lang);
+      const { data } = await worker.recognize(job.canvas, {}, { blocks: true, text: true });
+      result[job.side] = ocrLines(data, job.canvas);
+    }
+    applyOcrResult(result);
   } catch (e) {
     console.error(e);
-    setOcrStatus('❌ Das hat nicht geklappt. Beim ersten Mal braucht die Texterkennung Internet, um ihre Daten zu laden (ca. 8 MB).', 0);
+    setOcrStatus('❌ Das hat nicht geklappt. Beim ersten Mal braucht die Texterkennung Internet, um ihre Daten zu laden (ca. 4 MB).', 0);
   } finally {
     ocrLogger = null;
     $('.file-btn')?.classList.remove('busy');
   }
 }
 
-function applyOcrResult(data) {
-  const mode = draft.mode;
-  const text = data.text || '';
+function applyOcrResult(result) {
   let en = draftLines(draft.en), de = draftLines(draft.de);
   let count;
-  if (mode === 'both') {
-    // Erst das Spaltenlayout auswerten (Schulbuch), sonst Zeile für Zeile mit Trennzeichen
-    let pairs = parseOcrLines(ocrLines(data));
-    if (pairs.length < 2) pairs = parseVocabText(text).map(p => ({ en: cleanEnglish(p.en) || p.en, de: p.de }));
+  if (result.en && result.de) {
+    const pairs = pairColumns(result.en, result.de);
     // Beide Spalten auf gleiche Länge bringen, damit die neuen Zeilen zueinander passen.
     const len = Math.max(en.length, de.length);
     while (en.length < len) en.push('');
     while (de.length < len) de.push('');
     en = en.concat(pairs.map(p => p.en));
     de = de.concat(pairs.map(p => p.de));
-    count = pairs.length;
+    count = pairs.filter(p => p.en && p.de).length;
   } else {
-    let lines = parseVocabText(text).map(p => [p.en, p.de].filter(Boolean).join(' '));
-    if (mode === 'en') lines = lines.map(cleanEnglish).filter(Boolean);
-    if (mode === 'en') en = en.filter(Boolean).concat(lines);
+    const side = result.en ? 'en' : 'de';
+    const lines = singleColumn(result[side], side === 'en' ? cleanEnglish : cleanGerman);
+    if (side === 'en') en = en.filter(Boolean).concat(lines);
     else de = de.filter(Boolean).concat(lines);
     count = lines.length;
   }
@@ -1552,7 +1664,7 @@ function applyOcrResult(data) {
   $('#scan-en').value = draft.en;
   $('#scan-de').value = draft.de;
   renderScanPreview();
-  setOcrStatus(count ? `✅ ${count} Vokabeln erkannt – bitte kurz prüfen und korrigieren.` : '🤔 Kein Text erkannt. Versuch es mit einem schärferen Foto.', 1);
+  setOcrStatus(count ? `✅ ${count} Vokabeln erkannt – bitte kurz prüfen und korrigieren.` : '🤔 Kein Text erkannt. Versuch es mit einem schärferen Foto und prüfe die Rahmen.', 1);
 }
 
 /* ---------- Einstellungen ---------- */

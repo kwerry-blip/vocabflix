@@ -103,9 +103,8 @@ function parseVocabText(text) {
     .filter(p => p.en || p.de);
 }
 
-/* ---------- Layout-Erkennung für Schulbuch-Vokabelseiten ----------
-   Beispiel Lighthouse (Cornelsen): | people ['pi:pl] | Leute, Menschen | The people in Plymouth are nice. |
-   Aus den Positionen der erkannten Wörter werden Zeilen und Spalten rekonstruiert. */
+/* ---------- Schulbuch-Vokabelseiten ----------
+   Beispiel Lighthouse (Cornelsen): | people ['pi:pl] | Leute, Menschen | The people in Plymouth are nice. | */
 
 const IPA_CHARS = /[ˈˌːʌəɪʊæɒɔθðŋʃʒɜɑ\]]/;
 
@@ -119,6 +118,8 @@ function isPhonetic(token) {
 
 function cleanEnglish(text) {
   const tokens = String(text).replace(/^p\.?\s?\d+\s+/i, '').split(/\s+/).filter(Boolean);
+  // Einzelne Zeichen vorne sind meist Reste vom Rand („J Look at …“) – außer „I“ und „a“
+  while (tokens.length > 1 && /^[^\sIAa]$/.test(tokens[0])) tokens.shift();
   const out = [];
   for (const t of tokens) {
     if (isPhonetic(t)) break; // ab der Lautschrift ist der Rest egal
@@ -135,154 +136,191 @@ const median = arr => {
   return a[Math.floor(a.length / 2)];
 };
 
-// Robuste Gerade x = a + b·y durch Punkte (Theil-Sen): verkraftet Ausreißer und schräge Spalten (Perspektive).
-function fitColumn(points) {
-  const slopes = [];
-  for (let i = 0; i < points.length; i++) {
-    for (let j = i + 1; j < points.length; j++) {
-      const dy = points[j].y - points[i].y;
-      if (Math.abs(dy) > 1e-6) slopes.push((points[j].x - points[i].x) / dy);
-    }
-  }
-  const b = median(slopes);
-  const a = median(points.map(p => p.x - b * p.y));
-  return y => a + b * y;
+/* ---------- Spalten getrennt erkannt: Englisch und Deutsch wieder zu Paaren zusammensetzen ----------
+   Jede Spalte wird für sich (mit passender Sprache) gelesen. Zeilen tragen ihre Lage im Foto:
+   {text, x0, y0, x1, y1, bl: {x0, y0, x1, y1}} – bl ist die Grundlinie. Weil Fotos fast nie ganz gerade sind,
+   wird die Schräglage aus den Grundlinien geschätzt und jede Zeile auf eine gemeinsame senkrechte Linie projiziert. */
+
+// Häufige Lesefehler in deutschen Übersetzungen ausbessern
+function cleanGerman(text) {
+  let s = cleanOcr(String(text).replace(/ /g, ' '));
+  s = s.replace(/\s*\[[^\]]*\]?\s*/g, ' ');                       // versehentlich mitgelesene Lautschrift
+  s = s.replace(/\.\s+(?=\p{Ll})/gu, ', ');                       // "anfangen. beginnen" → "anfangen, beginnen"
+  if (s.includes('(') && !s.includes(')')) s = s.replace(/-[J\]|}l1](?=\p{Lu})/u, '-)'); // "(Groß-JStadt"
+  s = s.replace(/\s+-\)/g, '-)');                                  // "(Groß -)Stadt"
+  s = s.replace(/\ber\/(s[a-z]{1,4}\/es|sie[rt]es)\b/g, 'er/sie/es');  // "er/ste/es", "er/sieres"
+  s = s.replace(/^[^\p{L}(]+/u, '').replace(/[\s,;:|_\-–—]+$/u, '');
+  return s.replace(/\s+/g, ' ').trim();
 }
 
-/* lines: Zeilen aus der Texterkennung, [{words: [{text, conf, x0, y0, x1, y1}], baseline: {x0, y0, x1, y1}}]
-   Ergebnis: [{en, de}] oder [] wenn kein Spaltenlayout erkennbar ist. */
-function parseOcrLines(lines) {
-  const keep = w => w.text && w.text.trim() && w.conf >= 20 && !/^p\.?\d*$/i.test(w.text);
-  const all = lines.flatMap(l => l.words.filter(keep));
-  if (all.length < 4) return [];
-  const minX = Math.min(...all.map(w => w.x0));
-  const pageW = Math.max(...all.map(w => w.x1)) - minX;
+// Zahlenkästen, Seitenzahlen und Bildreste („ME Un SO A nl“) aussortieren
+function isJunkLine(raw, text, conf = 100) {
+  if (!text || !looksLikeText(text) || /^\d+\s/.test(raw.trim())) return true;
+  const tokens = text.split(/\s+/);
+  const avgLetters = letterCount(text) / tokens.length;
+  return conf < 40 && tokens.length >= 2 && avgLetters <= 2.5;
+}
 
-  // Schräglage aus den Grundlinien langer Zeilen schätzen und herausrechnen
-  const angle = median(lines
-    .map(l => l.baseline)
-    .filter(b => b && b.x1 - b.x0 > pageW * 0.3)
-    .map(b => Math.atan2(b.y1 - b.y0, b.x1 - b.x0)));
-  const cos = Math.cos(angle), sin = Math.sin(angle);
-  const rotate = w => {
-    const cx = (w.x0 + w.x1) / 2, cy = (w.y0 + w.y1) / 2;
-    const rx = cx * cos + cy * sin, hw = (w.x1 - w.x0) / 2;
-    return { ...w, rx0: rx - hw, rx1: rx + hw, ry: -cx * sin + cy * cos, h: w.y1 - w.y0 };
-  };
-  const h = median(all.filter(w => letterCount(w.text) >= 2).map(w => w.y1 - w.y0)) || 20;
+// Steigung der Zeilen (dy/dx) aus den Grundlinien: Median, damit einzelne Ausreißer nicht stören
+function lineSlope(lines) {
+  const slopes = lines
+    .filter(l => l.bl && l.bl.x1 - l.bl.x0 > 2 * (l.y1 - l.y0))
+    .map(l => (l.bl.y1 - l.bl.y0) / (l.bl.x1 - l.bl.x0));
+  return slopes.length ? median(slopes) : 0;
+}
 
-  // Zeilen der Texterkennung übernehmen; nebeneinanderliegende Teilzeilen (andere Spalte) zusammenführen
-  let rows = lines
-    .map(l => l.words.filter(keep).map(rotate))
-    .filter(ws => ws.length)
-    .map(ws => ({ words: ws, y: median(ws.map(w => w.ry)), x0: Math.min(...ws.map(w => w.rx0)), x1: Math.max(...ws.map(w => w.rx1)) }))
-    .sort((a, b) => a.y - b.y);
-  const merged = [];
-  for (const row of rows) {
-    const partner = merged.find(m => Math.abs(m.y - row.y) < h * 0.7 && (row.x0 > m.x1 || row.x1 < m.x0));
-    if (partner) {
-      partner.words.push(...row.words);
-      partner.x0 = Math.min(partner.x0, row.x0);
-      partner.x1 = Math.max(partner.x1, row.x1);
-    } else {
-      merged.push(row);
-    }
-  }
-  rows = merged.sort((a, b) => a.y - b.y);
-
-  // Zeilen an großen Lücken in Abschnitte (Spalten) teilen
-  for (const row of rows) {
-    row.words.sort((a, b) => a.rx0 - b.rx0);
-    row.segs = [];
-    for (const w of row.words) {
-      const seg = row.segs[row.segs.length - 1];
-      if (seg && w.rx0 - seg.x1 < h * 1.3) {
+// Jede Zeile an großen Lücken in Stücke teilen; xd ist die linke Kante, gerade gerückt (Schräglage herausgerechnet)
+function lineSegments(lines, slope) {
+  const wordH = median(lines.flatMap(l => (l.words || []).map(w => w.y1 - w.y0))) || 20;
+  const segments = [];
+  lines.forEach((l, li) => {
+    let seg = null;
+    for (const w of [...(l.words || [])].sort((a, b) => a.x0 - b.x0)) {
+      if (!w.text || !w.text.trim()) continue;
+      if (seg && w.x0 - seg.x1 <= 1.2 * wordH) {
         seg.words.push(w);
-        seg.x1 = w.rx1;
+        seg.x1 = w.x1;
       } else {
-        row.segs.push({ x0: w.rx0, x1: w.rx1, words: [w] });
+        seg = { li, words: [w], x0: w.x0, x1: w.x1, xd: w.x0 + slope * (w.y0 + w.y1) / 2 };
+        segments.push(seg);
       }
     }
-    for (const seg of row.segs) {
-      seg.text = seg.words.map(w => w.text).join(' ');
-      seg.conf = seg.words.reduce((s, w) => s + w.conf, 0) / seg.words.length;
-      seg.phonetic = seg.words.some(w => isPhonetic(w.text));
-    }
-  }
+  });
+  return { segments, wordH };
+}
 
-  // Spalten finden: In Zeilen mit mindestens zwei Abschnitten ist der erste Englisch, der zweite Deutsch.
-  // Daraus je eine (evtl. schräge) Spaltenlinie schätzen.
-  const textSegs = r => r.segs.filter(s => looksLikeText(s.text));
-  const multi = rows.map(r => ({ y: r.y, segs: textSegs(r) })).filter(r => r.segs.length >= 2);
-  if (multi.length < 3) return [];
-  const enX = fitColumn(multi.map(r => ({ y: r.y, x: r.segs[0].x0 })));
-  // Abstand Englisch -> Deutsch: der häufigste Abstand des zweiten Abschnitts (Beispielsätze liegen weiter rechts)
-  const offsets = multi.map(r => r.segs[1].x0 - enX(r.y)).filter(d => d > h * 2).sort((x, y) => x - y);
-  if (offsets.length < 3) return [];
-  const win = Math.max(h * 2, pageW * 0.04);
-  let bestLo = 0, bestN = 0;
-  for (let i = 0, j = 0; i < offsets.length; i++) {
-    while (offsets[j] < offsets[i] - win) j++;
-    if (i - j + 1 > bestN) { bestN = i - j + 1; bestLo = j; }
+// Stücke mit ähnlicher linker Kante bilden eine Spalte; sortiert von links nach rechts
+function segmentClusters(segments, wordH) {
+  const clusters = [];
+  for (const s of [...segments].sort((a, b) => a.xd - b.xd)) {
+    const c = clusters[clusters.length - 1];
+    if (c && s.xd - c.last <= 2 * wordH) { c.segs.push(s); c.last = s.xd; } else clusters.push({ segs: [s], last: s.xd });
   }
-  const deOffset = median(offsets.slice(bestLo, bestLo + bestN));
-  // 0 = Englisch, 1 = Deutsch, 2 = weiter rechts (Beispielsätze, Hinweise)
-  const colOf = (seg, y) => {
-    const d = seg.x0 - enX(y);
-    if (d < deOffset * 0.5) return 0;
-    return d < deOffset * 1.5 ? 1 : 2;
-  };
-  const enCol = 0, deCol = 1;
+  clusters.forEach(c => { c.lines = new Set(c.segs.map(s => s.li)).size; });
+  return clusters;
+}
 
-  const entries = [];
-  let last = null;
-  let pending = null; // Übersetzung ohne englisches Wort in derselben Zeile
-  const flushPending = () => {
-    if (pending && last && pending.y - last.y < h * 2.6) last.de = last.de ? `${last.de} ${pending.de}` : pending.de;
-    pending = null;
-  };
-  for (const row of rows) {
-    const segs = { en: [], de: [] };
-    for (const s of row.segs) {
-      const c = colOf(s, row.y);
-      if (c === enCol) segs.en.push(s);
-      else if (c === deCol) segs.de.push(s);
+/* Ist der Rahmen etwas zu groß, landen Teile der Nachbarspalte mit im Bild (Beispielsätze, angeschnittene Wörter).
+   Behalten wird die linke Spalte mit den meisten Zeilen. */
+function mainColumn(lines, slope = lineSlope(lines)) {
+  const withWords = lines.filter(l => l.words && l.words.length);
+  if (withWords.length < 3) return lines;
+  const { segments, wordH } = lineSegments(withWords, slope);
+  const clusters = segmentClusters(segments, wordH);
+  const max = Math.max(...clusters.map(c => c.lines));
+  const main = clusters.find(c => c.lines >= Math.max(2, 0.5 * max));
+  if (!main) return lines;
+  const keep = new Set(main.segs);
+  return withWords.map((l, li) => {
+    const words = segments.filter(s => s.li === li && keep.has(s)).flatMap(s => s.words);
+    if (!words.length) return null;
+    return {
+      ...l, words, text: words.map(w => w.text).join(' '),
+      conf: Math.min(...words.map(w => w.conf ?? 100)),
+      x0: Math.min(...words.map(w => w.x0)), x1: Math.max(...words.map(w => w.x1)),
+    };
+  }).filter(Boolean);
+}
+
+/* Spalten für die Rahmen vorschlagen – aus einem schnellen ersten Lesedurchgang über die ganze Liste.
+   Die zwei linken „großen“ Spalten (viel Text) sind Englisch und Deutsch; kleine Reste wie Seitenverweise
+   am Rand und Zahlenkästen zählen nicht. Ergebnis: { en, de: {x0, y0, x1, y1}, wordH } in Bildpunkten oder null. */
+function suggestColumns(lines) {
+  const withWords = lines.filter(l => l.words && l.words.some(w => looksLikeText(w.text || '')));
+  if (withWords.length < 3) return null;
+  const slope = lineSlope(withWords);
+  const { segments, wordH } = lineSegments(withWords, slope);
+  const textSegs = segments.filter(sg => !/^\d+$/.test(sg.words[0].text) && sg.words.some(w => looksLikeText(w.text || '')));
+  // Nah beieinander liegende Kanten gehören zur selben Spalte (eingerückte Zeilen, Lautschrift)
+  const clusters = [];
+  for (const sg of [...textSegs].sort((a, b) => a.xd - b.xd)) {
+    const c = clusters[clusters.length - 1];
+    if (c && sg.xd - c.last <= 4 * wordH) { c.segs.push(sg); c.last = sg.xd; } else clusters.push({ segs: [sg], last: sg.xd });
+  }
+  clusters.forEach(c => {
+    c.letters = c.segs.reduce((n, sg) => n + sg.words.reduce((m, w) => m + letterCount(w.text || ''), 0), 0);
+    c.lines = new Set(c.segs.map(sg => sg.li)).size;
+  });
+  const maxLetters = Math.max(0, ...clusters.map(c => c.letters));
+  const major = clusters.filter(c => c.lines >= 3 && c.letters >= 0.2 * maxLetters);
+  if (major.length < 2) return null;
+  const [cEn, cDe, cNext] = major;
+  // Eine Spalte endet spätestens dort, wo in derselben Zeile die nächste beginnt
+  const extent = (c, next) => {
+    let x1 = Math.max(...c.segs.map(sg => sg.x1));
+    if (next) {
+      for (const sg of c.segs) {
+        const right = next.segs.filter(n => n.li === sg.li && n.x0 > sg.x0);
+        if (right.length) x1 = Math.min(x1, Math.min(...right.map(n => n.x0)) - wordH * 0.4);
+      }
     }
-    const enSeg = segs.en.find(s => looksLikeText(cleanEnglish(s.text)) && s.conf >= 50);
-    const deText = cleanOcr(segs.de.filter(s => looksLikeText(s.text) && s.conf >= 45).map(s => s.text).join(' '));
-    if (enSeg) {
-      const en = cleanEnglish(enSeg.text);
-      // Überschriften ohne Lautschrift und ohne Übersetzung weglassen (z. B. "Focus on language")
-      if (!deText && !enSeg.phonetic && en.split(' ').length > 2) {
-        flushPending();
-        last = null;
-        continue;
-      }
-      let de = deText;
-      // Wegen schräger/gewölbter Seiten steht die Übersetzung manchmal knapp über dem Wort
-      if (!de && pending && row.y - pending.y < h * 1.6) {
-        de = pending.de;
-        pending = null;
-      }
-      flushPending();
-      last = { en, de, y: row.y };
-      entries.push(last);
-    } else if (deText) {
-      if (last && !last.de && row.y - last.y < h * 1.6) {
-        last.de = deText;
-      } else {
-        flushPending();
-        pending = { de: deText, y: row.y };
-      }
+    // Linke Kante robust: einzelne Ausreißer (Lautschrift-Reste der Nachbarspalte) zählen nicht
+    const lefts = c.segs.map(sg => sg.x0).sort((a, b) => a - b);
+    return { x0: lefts[Math.floor(lefts.length * 0.1)], x1 };
+  };
+  const both = [...cEn.segs, ...cDe.segs].flatMap(sg => sg.words);
+  const y0 = Math.min(...both.map(w => w.y0)), y1 = Math.max(...both.map(w => w.y1));
+  return { en: { ...extent(cEn, cDe), y0, y1 }, de: { ...extent(cDe, cNext), y0, y1 }, wordH };
+}
+
+function pairColumns(enLines, deLines) {
+  const slope0 = lineSlope([...enLines, ...deLines]);
+  const prep = (lines, clean) => mainColumn(lines, slope0)
+    .map(l => ({ ...l, raw: l.text || '', text: clean(l.text || '') }))
+    .filter(l => !isJunkLine(l.raw, l.text, l.conf ?? 100));
+  const en = prep(enLines, cleanEnglish);
+  const de = prep(deLines, cleanGerman);
+  if (!en.length && !de.length) return [];
+
+  const slope = slope0;
+  const xRef = (median(en.map(l => l.x1)) + median(de.map(l => l.x0))) / 2 || 0;
+  const yAt = l => {
+    const b = l.bl || { x0: l.x0, y0: l.y1, x1: l.x1, y1: l.y1 };
+    return b.y0 + slope * (xRef - b.x0);
+  };
+  const lineH = median([...en, ...de].map(l => l.y1 - l.y0)) || 20;
+  en.forEach(l => { l.y = yAt(l); });
+  en.sort((a, b) => a.y - b.y);
+
+  const entries = en.map(l => ({ y: l.y, en: l.text, de: [], conf: l.conf ?? 100 }));
+  for (const d of de.map(l => ({ ...l, y: yAt(l) })).sort((a, b) => a.y - b.y)) {
+    let best = null;
+    for (const e of entries) {
+      if (!e.en) continue;
+      if (!best || Math.abs(e.y - d.y) < Math.abs(best.y - d.y)) best = e;
+    }
+    const target = best && Math.abs(best.y - d.y) <= 1.8 * lineH ? best : null;
+    if (target) {
+      target.de.push(d);
+      target.conf = Math.min(target.conf, d.conf ?? 100);
+    } else if ((d.conf ?? 100) >= 60) {
+      entries.push({ y: d.y, en: '', de: [d], conf: d.conf ?? 100 }); // Übersetzung ohne passendes englisches Wort
     }
   }
-  flushPending();
-  return entries.map(({ en, de }) => ({ en, de: de.replace(/^[^\p{L}(]+/u, '') }));
+  // Zweizeilige Übersetzungen zusammenfügen: nach „;“ mit Semikolon, Trennstrich am Zeilenende wieder schließen
+  const join = parts => parts.reduce((acc, part, i) => {
+    if (!i) return part.text;
+    if (/[;:]\s*$/.test(parts[i - 1].raw)) return `${acc}; ${part.text}`;
+    if (/\p{L}-$/u.test(acc) && /^\p{Ll}/u.test(part.text)) return acc.slice(0, -1) + part.text;
+    return `${acc} ${part.text}`;
+  }, '');
+  return entries
+    .sort((a, b) => a.y - b.y)
+    .map(e => ({ en: e.en, de: join(e.de), unsure: e.conf < 60 || !e.en || !e.de.length }));
+}
+
+// Nur eine Spalte fotografiert („Nur Englisch“ / „Nur Deutsch“): bereinigte Zeilen von oben nach unten
+function singleColumn(lines, clean) {
+  return mainColumn(lines)
+    .map(l => ({ y: l.y0, raw: l.text || '', conf: l.conf ?? 100, text: clean(l.text || '') }))
+    .filter(l => !isJunkLine(l.raw, l.text, l.conf))
+    .sort((a, b) => a.y - b.y)
+    .map(l => l.text);
 }
 
 if (typeof module !== 'undefined') {
   module.exports = {
     normalize, acceptedForms, levenshtein, checkAnswer, splitLine, parseVocabText,
-    isPhonetic, cleanEnglish, parseOcrLines,
+    isPhonetic, cleanEnglish, cleanGerman, pairColumns, mainColumn, singleColumn, suggestColumns,
   };
 }

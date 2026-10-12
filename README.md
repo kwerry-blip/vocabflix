@@ -59,13 +59,17 @@ Die App muss einmal über **https** erreichbar sein, zum Beispiel mit GitHub Pag
 
 ## Vokabeln aus dem Buch fotografieren
 
-Die Erfassung erkennt typische Schulbuch-Layouts mit den Spalten **Englisch (mit Lautschrift) | Deutsch |
-Beispielsatz** – zum Beispiel aus English G Lighthouse (Cornelsen). Die Spalten werden anhand der Wortpositionen
-erkannt, Lautschrift und Beispielsätze fallen weg, zweizeilige Übersetzungen werden zusammengefügt.
+Die Erfassung ist auf typische Schulbuch-Layouts mit den Spalten **Englisch (mit Lautschrift) | Deutsch |
+Beispielsatz** ausgelegt – zum Beispiel aus English G Lighthouse (Cornelsen).
 
 1. **Erfassen** → Unit eintragen → **Foto machen**
-2. **Rahmen um die Vokabeln ziehen** – ohne Bilder und ohne die Nachbarseite.
-3. **Text erkennen** → in der Vorschau prüfen, korrigieren, falsche Zeilen mit ✕ löschen → **Speichern**
+2. **Rahmen um die Vokabelliste ziehen** – ohne die Nachbarseite → **Weiter**
+3. Die App schlägt einen **blauen Rahmen für Englisch** und einen **orangen für Deutsch** vor – bei Bedarf verschieben.
+4. **Text erkennen** → in der Vorschau prüfen, korrigieren, falsche Zeilen mit ✕ löschen → **Speichern**
+
+So funktioniert es: Jede Spalte wird für sich mit dem passenden Sprachmodell gelesen (Englisch bzw. Deutsch).
+Danach setzt die App die Zeilen wieder zu Paaren zusammen und rechnet dabei die Schräglage des Fotos heraus.
+Lautschrift, Beispielsätze, Zahlenkästen und Bildreste fallen weg, zweizeilige Übersetzungen werden zusammengefügt.
 
 Tipps: Buch flach hinlegen, gerade von oben und mit gutem Licht fotografieren. Die Texterkennung ist nicht
 perfekt – einzelne Buchstaben oder Umlaute können falsch sein, deshalb immer kurz über die Vorschau schauen.
