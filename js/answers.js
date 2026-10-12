@@ -109,20 +109,28 @@ function parseVocabText(text) {
 const IPA_CHARS = /[ˈˌːʌəɪʊæɒɔθðŋʃʒɜɑ\]]/;
 
 // Gehört ein Wort zur Lautschrift (oder ist es OCR-Müll davon)?
+// Kleine Wörter, die in Vokabeln wirklich in Klammern stehen: "(to) live", "all (the)", "(a) lot"
+const BRACKET_WORDS = /^\((to|the|a|an|sb|sth|s|es|of|at|on|in|up|out|off|for|with|about|be|one)\)[.,*]?$/i;
+
 function isPhonetic(token) {
-  if (/^\([a-z]+\)[.,]?$/i.test(token)) return false; // "(to)", "(the)" sind echte Wörter
+  if (BRACKET_WORDS.test(token)) return false;
   if (/^[[(|/{‘'’`´"“]/.test(token)) return true;
+  if (/^I[’'‘](m|ll|ve|d|s)\b/i.test(token)) return false; // "I'm", "I'll" sind echte Wörter
   if (/^[LlI1|][’'‘]/.test(token)) return true; // "[’" wird oft als "L’" gelesen
   return IPA_CHARS.test(token);
 }
 
 function cleanEnglish(text) {
-  const tokens = String(text).replace(/^p\.?\s?\d+\s+/i, '').split(/\s+/).filter(Boolean);
-  // Einzelne Zeichen vorne sind meist Reste vom Rand („J Look at …“) – außer „I“ und „a“
-  while (tokens.length > 1 && /^[^\sIAa]$/.test(tokens[0])) tokens.shift();
+  const tokens = String(text).replace(/^[\s>▶►•*]*p[.\-‑]?\s?\d+\s+/i, '').split(/\s+/).filter(Boolean)
+    .map(t => t.replace(/^(\([a-z]+\))[*”"'’`]+$/i, '$1')); // „(to)*“ – das Sternchen wird oft als Anführungszeichen gelesen
+  // Reste vom Rand vorne: Zeichen ohne Buchstaben („-9“, „•“) und einzelne Buchstaben („J Look at …“) – außer „I“ und „a“
+  // und falsch gelesene Seitenverweise („n22“, „P-9“)
+  while (tokens.length > 1 && (!/\p{L}/u.test(tokens[0]) || /^[^\sIAa]$/.test(tokens[0]) || /^\p{L}?[.\-]?\d+$/u.test(tokens[0]))) tokens.shift();
   const out = [];
   for (const t of tokens) {
     if (isPhonetic(t)) break; // ab der Lautschrift ist der Rest egal
+    // Lautschrift, deren öffnende Klammer nicht erkannt wurde: „big big)“
+    if (out.length && /[)\]]$/.test(t) && !out.join(' ').includes('(') && !t.includes('(')) break;
     out.push(t);
   }
   return cleanOcr(out.join(' ')).replace(/[,;:]+$/, '');
@@ -158,7 +166,7 @@ function isJunkLine(raw, text, conf = 100) {
   if (!text || !looksLikeText(text) || /^\d+\s/.test(raw.trim())) return true;
   const tokens = text.split(/\s+/);
   const avgLetters = letterCount(text) / tokens.length;
-  return conf < 40 && tokens.length >= 2 && avgLetters <= 2.5;
+  return conf < 40 && tokens.length >= 3 && avgLetters <= 2.2;
 }
 
 // Steigung der Zeilen (dy/dx) aus den Grundlinien: Median, damit einzelne Ausreißer nicht stören
@@ -169,9 +177,30 @@ function lineSlope(lines) {
   return slopes.length ? median(slopes) : 0;
 }
 
-// Jede Zeile an großen Lücken in Stücke teilen; xd ist die linke Kante, gerade gerückt (Schräglage herausgerechnet)
-function lineSegments(lines, slope) {
+/* Neigung der Spalten (dx/dy): Ist das Handy nicht genau über dem Buch, laufen Spalten schräg – auch wenn die
+   Zeilen waagerecht sind (Trapez). Geschätzt aus den linken Kanten der Zeilen: Median der Steigungen aller Paare
+   (Theil-Sen), das verkraftet Ausreißer wie Zeilen, die erst in der zweiten Spalte beginnen. */
+function columnLean(lines, wordH) {
+  const starts = lines
+    .map(l => (l.words || []).filter(w => w.text && w.text.trim()))
+    .filter(ws => ws.length)
+    .map(ws => ws.reduce((a, b) => (b.x0 < a.x0 ? b : a)))
+    .map(w => ({ x: w.x0, y: (w.y0 + w.y1) / 2 }));
+  const pts = starts.length > 80 ? starts.filter((_, i) => i % Math.ceil(starts.length / 80) === 0) : starts;
+  const slopes = [];
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const dy = pts[j].y - pts[i].y, dx = pts[j].x - pts[i].x;
+      if (Math.abs(dy) > 3 * wordH && Math.abs(dx) < 0.25 * Math.abs(dy)) slopes.push(dx / dy);
+    }
+  }
+  return slopes.length >= 3 ? median(slopes) : 0;
+}
+
+// Jede Zeile an großen Lücken in Stücke teilen; xd ist die linke Kante, gerade gerückt (Neigung herausgerechnet)
+function lineSegments(lines) {
   const wordH = median(lines.flatMap(l => (l.words || []).map(w => w.y1 - w.y0))) || 20;
+  const lean = columnLean(lines, wordH);
   const segments = [];
   lines.forEach((l, li) => {
     let seg = null;
@@ -181,12 +210,12 @@ function lineSegments(lines, slope) {
         seg.words.push(w);
         seg.x1 = w.x1;
       } else {
-        seg = { li, words: [w], x0: w.x0, x1: w.x1, xd: w.x0 + slope * (w.y0 + w.y1) / 2 };
+        seg = { li, words: [w], x0: w.x0, x1: w.x1, xd: w.x0 - lean * (w.y0 + w.y1) / 2 };
         segments.push(seg);
       }
     }
   });
-  return { segments, wordH };
+  return { segments, wordH, lean };
 }
 
 // Stücke mit ähnlicher linker Kante bilden eine Spalte; sortiert von links nach rechts
@@ -202,10 +231,10 @@ function segmentClusters(segments, wordH) {
 
 /* Ist der Rahmen etwas zu groß, landen Teile der Nachbarspalte mit im Bild (Beispielsätze, angeschnittene Wörter).
    Behalten wird die linke Spalte mit den meisten Zeilen. */
-function mainColumn(lines, slope = lineSlope(lines)) {
+function mainColumn(lines) {
   const withWords = lines.filter(l => l.words && l.words.length);
   if (withWords.length < 3) return lines;
-  const { segments, wordH } = lineSegments(withWords, slope);
+  const { segments, wordH } = lineSegments(withWords);
   const clusters = segmentClusters(segments, wordH);
   const max = Math.max(...clusters.map(c => c.lines));
   const main = clusters.find(c => c.lines >= Math.max(2, 0.5 * max));
@@ -216,80 +245,193 @@ function mainColumn(lines, slope = lineSlope(lines)) {
     if (!words.length) return null;
     return {
       ...l, words, text: words.map(w => w.text).join(' '),
-      conf: Math.min(...words.map(w => w.conf ?? 100)),
+      conf: median(words.map(w => w.conf ?? 100)),
       x0: Math.min(...words.map(w => w.x0)), x1: Math.max(...words.map(w => w.x1)),
     };
   }).filter(Boolean);
 }
 
 /* Spalten für die Rahmen vorschlagen – aus einem schnellen ersten Lesedurchgang über die ganze Liste.
-   Die zwei linken „großen“ Spalten (viel Text) sind Englisch und Deutsch; kleine Reste wie Seitenverweise
-   am Rand und Zahlenkästen zählen nicht. Ergebnis: { en, de: {x0, y0, x1, y1}, wordH } in Bildpunkten oder null. */
+   Spalten erkennt man an vielen Zeilen, die an (fast) derselben Stelle beginnen. Die zwei linken großen Spalten
+   (viel Text) sind Englisch und Deutsch; kleine Reste wie Seitenverweise, Lautschrift-Fetzen und Zahlenkästen
+   zählen nicht. Ergebnis: { en, de: {x0, y0, x1, y1}, wordH } in Bildpunkten oder null. */
 function suggestColumns(lines) {
   const withWords = lines.filter(l => l.words && l.words.some(w => looksLikeText(w.text || '')));
   if (withWords.length < 3) return null;
-  const slope = lineSlope(withWords);
-  const { segments, wordH } = lineSegments(withWords, slope);
+  const { segments, wordH } = lineSegments(withWords);
   const textSegs = segments.filter(sg => !/^\d+$/.test(sg.words[0].text) && sg.words.some(w => looksLikeText(w.text || '')));
-  // Nah beieinander liegende Kanten gehören zur selben Spalte (eingerückte Zeilen, Lautschrift)
-  const clusters = [];
-  for (const sg of [...textSegs].sort((a, b) => a.xd - b.xd)) {
-    const c = clusters[clusters.length - 1];
-    if (c && sg.xd - c.last <= 4 * wordH) { c.segs.push(sg); c.last = sg.xd; } else clusters.push({ segs: [sg], last: sg.xd });
+  if (!textSegs.length) return null;
+  // Häufungen linker Kanten: für jedes Stück zählen, wie viele andere fast an derselben Stelle beginnen
+  const density = sg => textSegs.filter(o => Math.abs(o.xd - sg.xd) <= wordH).length;
+  const peaks = [];
+  for (const sg of [...textSegs].sort((a, b) => density(b) - density(a))) {
+    if (density(sg) < 3) break;
+    if (!peaks.some(pk => Math.abs(pk.xd - sg.xd) < 3 * wordH)) peaks.push({ xd: sg.xd, segs: [] });
   }
-  clusters.forEach(c => {
-    c.letters = c.segs.reduce((n, sg) => n + sg.words.reduce((m, w) => m + letterCount(w.text || ''), 0), 0);
-    c.lines = new Set(c.segs.map(sg => sg.li)).size;
+  peaks.sort((a, b) => a.xd - b.xd);
+  // Jedes Stück gehört zur nächsten Spaltenkante links davon (Einrückungen bis ca. 3 Zeichenhöhen erlaubt)
+  for (const sg of textSegs) {
+    const pk = [...peaks].reverse().find(p => sg.xd >= p.xd - 1.5 * wordH);
+    if (pk && sg.xd <= pk.xd + 3 * wordH) pk.segs.push(sg);
+  }
+  // Kanten, die dicht beieinanderliegen, gehören zu einer Spalte (Einrückungen, Bruchstücke) –
+  // echte Nachbarspalten liegen deutlich weiter auseinander
+  const merged = [];
+  for (const pk of peaks) {
+    const prev = merged[merged.length - 1];
+    if (prev && pk.xd - prev.xd < 6 * wordH) prev.segs.push(...pk.segs);
+    else merged.push(pk);
+  }
+  merged.forEach(pk => {
+    pk.letters = pk.segs.reduce((n, sg) => n + sg.words.reduce((m, w) => m + letterCount(w.text || ''), 0), 0);
+    pk.lines = new Set(pk.segs.map(sg => sg.li)).size;
   });
-  const maxLetters = Math.max(0, ...clusters.map(c => c.letters));
-  const major = clusters.filter(c => c.lines >= 3 && c.letters >= 0.2 * maxLetters);
+  const maxLetters = Math.max(0, ...merged.map(pk => pk.letters));
+  const major = merged.filter(pk => pk.lines >= 3 && pk.letters >= 0.2 * maxLetters);
   if (major.length < 2) return null;
   const [cEn, cDe, cNext] = major;
-  // Eine Spalte endet spätestens dort, wo in derselben Zeile die nächste beginnt
-  const extent = (c, next) => {
-    let x1 = Math.max(...c.segs.map(sg => sg.x1));
-    if (next) {
-      for (const sg of c.segs) {
-        const right = next.segs.filter(n => n.li === sg.li && n.x0 > sg.x0);
-        if (right.length) x1 = Math.min(x1, Math.min(...right.map(n => n.x0)) - wordH * 0.4);
-      }
-    }
-    // Linke Kante robust: einzelne Ausreißer (Lautschrift-Reste der Nachbarspalte) zählen nicht
-    const lefts = c.segs.map(sg => sg.x0).sort((a, b) => a - b);
-    return { x0: lefts[Math.floor(lefts.length * 0.1)], x1 };
+  // Rahmen am äußersten Wort ausrichten: schräg laufende Spalten sollen oben und unten ganz drin sein.
+  // Englisch: alles links der deutschen Spalte (Seitenverweise am Rand entfernt später cleanEnglish).
+  // Deutsch: bis zum längsten Eintrag – begrenzt nur dort, wo in derselben Zeile die nächste Spalte beginnt.
+  const deLeft = Math.min(...cDe.segs.map(sg => sg.x0));
+  const en = {
+    x0: Math.min(...textSegs.filter(sg => sg.x1 <= deLeft + wordH).map(sg => sg.x0)),
+    x1: Math.min(Math.max(...cEn.segs.map(sg => sg.x1)), deLeft + 2 * wordH),
   };
-  const both = [...cEn.segs, ...cDe.segs].flatMap(sg => sg.words);
-  const y0 = Math.min(...both.map(w => w.y0)), y1 = Math.max(...both.map(w => w.y1));
-  return { en: { ...extent(cEn, cDe), y0, y1 }, de: { ...extent(cDe, cNext), y0, y1 }, wordH };
+  // Rechter Rand: der längste Eintrag, der nicht schon in die nächste Spalte hineinragt (zusammengewachsene Stücke);
+  // in Zeilen, in denen rechts daneben die nächste Spalte steht, endet der Rahmen kurz davor.
+  const nextLeft = cNext ? Math.min(...cNext.segs.map(sg => sg.x0)) : Infinity;
+  const deEndsAll = cDe.segs.map(sg => sg.x1).sort((a, b) => a - b);
+  const ends = deEndsAll.filter(x => x <= nextLeft + wordH);
+  let deRight = (ends.length ? Math.max(...ends) : Math.max(...cDe.segs.map(sg => sg.x1))) + wordH;
+  if (cNext) {
+    // Wo in derselben Zeile rechts die nächste Spalte beginnt, endet der Rahmen kurz davor – maßgeblich ist
+    // aber nicht die engste Zeile (Ausreißer), und die meisten deutschen Einträge müssen ganz hineinpassen.
+    const limits = [];
+    for (const sg of cDe.segs) {
+      const nextOnRow = cNext.segs.filter(n => n.li === sg.li && n.x0 > sg.x1);
+      if (nextOnRow.length) limits.push(Math.min(...nextOnRow.map(n => n.x0)) - 0.2 * wordH);
+    }
+    if (limits.length) {
+      limits.sort((a, b) => a - b);
+      const most = deEndsAll[Math.floor(deEndsAll.length * 0.75)] + 0.5 * wordH;
+      deRight = Math.min(deRight, Math.max(limits[Math.floor(limits.length * 0.25)], most));
+    }
+  }
+  const de = { x0: deLeft, x1: Math.max(deRight, deLeft + 4 * wordH) };
+  const words = [...cEn.segs, ...cDe.segs].flatMap(sg => sg.words);
+  const y0 = Math.min(...words.map(w => w.y0)), y1 = Math.max(...words.map(w => w.y1));
+  return { en: { ...en, y0, y1 }, de: { ...de, y0, y1 }, wordH };
+}
+
+/* ---------- Trennlinien der Vokabeltabelle ----------
+   Viele Schulbücher ziehen zwischen den Einträgen dünne Linien. Die Texterkennung verschluckt daneben gern ganze
+   Zeilen – deshalb werden sie vorher aus dem Bild entfernt (removeRules in app.js). */
+
+// Kurze waagerechte Strecken {y, x0, x1} zu durchgehenden Linien verbinden (auch schräge: Treppenstufen)
+function traceRules(runs) {
+  const parent = runs.map((_, i) => i);
+  const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const sorted = runs.map((r, i) => ({ ...r, i })).sort((a, b) => a.y - b.y);
+  for (let a = 0; a < sorted.length; a++) {
+    for (let b = a + 1; b < sorted.length && sorted[b].y - sorted[a].y <= 2.5; b++) {
+      const r1 = sorted[a], r2 = sorted[b];
+      if (r2.x0 <= r1.x1 + 12 && r1.x0 <= r2.x1 + 12) parent[find(r1.i)] = find(r2.i);
+    }
+  }
+  const groups = new Map();
+  runs.forEach((r, i) => {
+    const g = find(i);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  });
+  return [...groups.values()].map((rs, id) => {
+    rs.sort((a, b) => a.x0 - b.x0);
+    const x0 = Math.min(...rs.map(r => r.x0)), x1 = Math.max(...rs.map(r => r.x1));
+    // Höhe der Linie an der Stelle x (Mittel der Strecken dort, sonst zwischen den Nachbarn verbunden)
+    const yAt = x => {
+      const here = rs.filter(r => r.x0 <= x && x <= r.x1);
+      if (here.length) return here.reduce((a, r) => a + r.y, 0) / here.length;
+      const left = rs.filter(r => r.x1 < x).pop(), right = rs.find(r => r.x0 > x);
+      if (left && right) return left.y + (right.y - left.y) * (x - left.x1) / Math.max(1, right.x0 - left.x1);
+      return (left || right).y;
+    };
+    return { id, x0, x1, yAt, runs: rs };
+  });
 }
 
 function pairColumns(enLines, deLines) {
   const slope0 = lineSlope([...enLines, ...deLines]);
-  const prep = (lines, clean) => mainColumn(lines, slope0)
+  const prep = (lines, clean) => mainColumn(lines)
     .map(l => ({ ...l, raw: l.text || '', text: clean(l.text || '') }))
     .filter(l => !isJunkLine(l.raw, l.text, l.conf ?? 100));
   const en = prep(enLines, cleanEnglish);
   const de = prep(deLines, cleanGerman);
   if (!en.length && !de.length) return [];
 
-  const slope = slope0;
   const xRef = (median(en.map(l => l.x1)) + median(de.map(l => l.x0))) / 2 || 0;
+  // Gewölbte Seiten sind oben anders schief als unten: Steigung aus den Nachbarzeilen schätzen
+  const all = [...en, ...de];
+  const lineH0 = median(all.map(l => l.y1 - l.y0)) || 20;
+  const slopeNear = y => {
+    const near = all.filter(l => Math.abs(l.y0 - y) < 8 * lineH0);
+    return near.length >= 4 ? lineSlope(near) : slope0;
+  };
   const yAt = l => {
     const b = l.bl || { x0: l.x0, y0: l.y1, x1: l.x1, y1: l.y1 };
-    return b.y0 + slope * (xRef - b.x0);
+    return b.y0 + slopeNear(l.y0) * (xRef - b.x0);
   };
   const lineH = median([...en, ...de].map(l => l.y1 - l.y0)) || 20;
   en.forEach(l => { l.y = yAt(l); });
   en.sort((a, b) => a.y - b.y);
-
-  const entries = en.map(l => ({ y: l.y, en: l.text, de: [], conf: l.conf ?? 100 }));
+  // Perspektive und gewölbte Seiten: die deutsche Spalte kann oben und unten unterschiedlich weit verrutscht sein.
+  // Gesucht ist der Verlauf des Versatzes von oben nach unten, bei dem möglichst viele englische Zeilen eine
+  // deutsche Zeile genau gegenüber haben und der Versatz sich nur sanft ändert (Viterbi über mögliche Versätze).
+  const deY = de.map(yAt).sort((a, b) => a - b);
+  const steps = [];
+  for (let o = -3 * lineH; o <= 3 * lineH + 1e-6; o += lineH / 5) steps.push(o);
+  // Treffer zählen; dazu eine leichte Vorliebe für kleine Versätze: Krümmung und Perspektive verschieben selten um
+  // mehr als eine halbe Zeile – eine um eine ganze Zeile verrutschte Zuordnung passt sonst genauso gut.
+  const fit = (e, o) => {
+    let best = 0;
+    for (const y of deY) {
+      const d = (y - e.y - o) / (0.4 * lineH);
+      best = Math.max(best, 1 - d * d);
+    }
+    return best - 0.15 * Math.abs(o) / lineH;
+  };
+  let score = steps.map(o => (en[0] ? fit(en[0], o) : 0));
+  const back = [];
+  for (let i = 1; i < en.length; i++) {
+    const prev = score;
+    const from = [];
+    score = steps.map((o, k) => {
+      let bestK = 0, bestV = -Infinity;
+      for (let j = 0; j < steps.length; j++) {
+        const v = prev[j] - Math.abs(steps[j] - o) / lineH; // Versatzänderung kostet
+        if (v > bestV) { bestV = v; bestK = j; }
+      }
+      from[k] = bestK;
+      return bestV + fit(en[i], o);
+    });
+    back.push(from);
+  }
+  if (en.length) {
+    let k = score.indexOf(Math.max(...score));
+    for (let i = en.length - 1; i >= 0; i--) {
+      en[i].offset = steps[k];
+      if (i > 0) k = back[i - 1][k];
+    }
+  }
+  if (typeof process !== 'undefined' && process.env.DEBUG_OCR) console.error('Versatz', en.map(e => Math.round(e.offset)).join(' '));
+  const entries = en.map(l => ({ y: l.y, offset: l.offset, en: l.text, de: [], conf: l.conf ?? 100 }));
   for (const d of de.map(l => ({ ...l, y: yAt(l) })).sort((a, b) => a.y - b.y)) {
     let best = null;
     for (const e of entries) {
       if (!e.en) continue;
-      if (!best || Math.abs(e.y - d.y) < Math.abs(best.y - d.y)) best = e;
+      if (!best || Math.abs(e.y + e.offset - d.y) < Math.abs(best.y + best.offset - d.y)) best = e;
     }
-    const target = best && Math.abs(best.y - d.y) <= 1.8 * lineH ? best : null;
+    const target = best && Math.abs(best.y + best.offset - d.y) <= 1.8 * lineH ? best : null;
     if (target) {
       target.de.push(d);
       target.conf = Math.min(target.conf, d.conf ?? 100);
@@ -297,7 +439,32 @@ function pairColumns(enLines, deLines) {
       entries.push({ y: d.y, en: '', de: [d], conf: d.conf ?? 100 }); // Übersetzung ohne passendes englisches Wort
     }
   }
-  // Zweizeilige Übersetzungen zusammenfügen: nach „;“ mit Semikolon, Trennstrich am Zeilenende wieder schließen
+  // Liegen deutsche Zeilen eines Eintrags so weit auseinander wie zwei Tabellenzeilen, fehlt dazwischen meist ein
+  // englisches Wort (z. B. zu blass gedruckt). Dann bleibt nur die passende Gruppe beim Wort, die anderen werden eigene
+  // Zeilen mit leerem Englisch – zum Ergänzen statt falsch zusammengeklebt.
+  const extra = [];
+  // Maßstab ist der Leerraum zwischen den Zeilen (echte Bildhöhen): Fortsetzungszeilen stehen dicht darunter,
+  // eine neue Tabellenzeile hat deutlich mehr Abstand
+  const newRow = (prev, next) => next.y0 - prev.y1 > 0.45 * (prev.y1 - prev.y0);
+  for (const e of entries) {
+    if (!e.en || e.de.length < 2) continue;
+    const groups = [[e.de[0]]];
+    for (const d of e.de.slice(1)) {
+      const last = groups[groups.length - 1];
+      if (newRow(last[last.length - 1], d)) groups.push([d]); else last.push(d);
+    }
+    if (groups.length < 2) continue;
+    const target = e.y + (e.offset || 0);
+    const dist = g => Math.min(...g.map(d => Math.abs(d.y - target)));
+    const keep = groups.reduce((a, g) => (dist(g) < dist(a) ? g : a));
+    e.de = keep;
+    for (const g of groups) if (g !== keep) extra.push({ y: g[0].y, en: '', de: g, conf: 0 });
+  }
+  return finishEntries([...entries, ...extra]);
+}
+
+// Zweizeilige Übersetzungen zusammenfügen: nach „;“ mit Semikolon, Trennstrich am Zeilenende wieder schließen
+function finishEntries(entries) {
   const join = parts => parts.reduce((acc, part, i) => {
     if (!i) return part.text;
     if (/[;:]\s*$/.test(parts[i - 1].raw)) return `${acc}; ${part.text}`;
@@ -321,6 +488,6 @@ function singleColumn(lines, clean) {
 if (typeof module !== 'undefined') {
   module.exports = {
     normalize, acceptedForms, levenshtein, checkAnswer, splitLine, parseVocabText,
-    isPhonetic, cleanEnglish, cleanGerman, pairColumns, mainColumn, singleColumn, suggestColumns,
+    isPhonetic, cleanEnglish, cleanGerman, pairColumns, mainColumn, singleColumn, suggestColumns, lineSlope, traceRules,
   };
 }

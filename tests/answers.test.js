@@ -100,7 +100,7 @@ function ocrLine(y, x, text, { tilt = 0, conf = 90 } = {}) {
     cx += w + 5;
   }
   const last = words[words.length - 1];
-  return { text, conf, x0: x, y0: words[0].y0, x1: last.x1, y1: last.y1,
+  return { text, conf, x0: x, y0: Math.min(...words.map(w => w.y0)), x1: last.x1, y1: Math.max(...words.map(w => w.y1)),
     bl: { x0: x, y0: words[0].y1, x1: last.x1, y1: last.y1 }, words };
 }
 
@@ -163,6 +163,25 @@ test('Echte Daten: Spalten eines Handyfotos (Lighthouse 1, S. 186, Rahmen ungena
     assert.ok(has(e, d), `${e} → ${d} fehlt: ${JSON.stringify(pairs)}`);
   }
   assert.ok(!pairs.some(p => /Plymouth|friends|fourteen/.test(p.de)), 'Beispielsätze dürfen nicht als Übersetzung landen');
+});
+
+// Echte Handyfotos aus zwei Englischbüchern (gerade, schräg, gewölbt): Mindestzahl richtiger Paare halten.
+// Die fehlenden Wörter sind im Foto zu blass gedruckt – daran kann die Zuordnung nichts ändern.
+test('Echte Daten: drei Buchseiten, Mindestzahl richtiger Paare', () => {
+  const { pairColumns, normalize, levenshtein } = require('../js/answers.js');
+  const LOESUNG = require('./fixtures/loesungen.js');
+  const n = s => normalize(s).replace(/[’']/g, '').replace(/[^\p{L}\s]/gu, '').replace(/\s+/g, ' ').trim();
+  const close = (a, b) => { const x = n(a), y = n(b); return x === y || (y.length > 8 && levenshtein(x, y) <= 1); };
+  for (const [file, key, min] of [
+    ['lighthouse1-s186-spalten-genau', 's186', 11],
+    ['englishg-s226-spalten', 's226', 19],
+    ['englishg-welcome-spalten', 'welcome', 13],
+  ]) {
+    const { en, de } = require(`./fixtures/${file}.json`);
+    const pairs = pairColumns(en, de);
+    const ok = LOESUNG[key].filter(([e, d]) => pairs.some(p => close(p.en, e) && close(p.de, d))).length;
+    assert.ok(ok >= min, `${file}: nur ${ok} von ${LOESUNG[key].length} richtig (mindestens ${min})`);
+  }
 });
 
 test('Echte Daten: Spaltenvorschlag aus dem ersten Lesedurchgang', () => {

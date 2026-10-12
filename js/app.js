@@ -1357,8 +1357,9 @@ function turnedSize(img, rot) {
 }
 
 // Bild gedreht und zugeschnitten in ein Canvas zeichnen; maxSide begrenzt die Größe (auch Vergrößern ist erlaubt).
-// canvas.map rechnet Canvas-Pixel zurück in Pixel des (gedrehten) Fotos.
-function renderCrop(img, rot, rect, maxSide, maxUpscale) {
+// tilt (Bogenmaß) richtet ein schief fotografiertes Buch gerade: der Ausschnitt wird um seine Mitte zurückgedreht.
+// canvas.scale: Bildpunkte im Canvas je Bildpunkt im Foto.
+function renderCrop(img, rot, rect, maxSide, maxUpscale, tilt = 0) {
   const iw = img.naturalWidth, ih = img.naturalHeight;
   const full = turnedSize(img, rot);
   const cw = full.w * rect.w, ch = full.h * rect.h;
@@ -1369,45 +1370,154 @@ function renderCrop(img, rot, rect, maxSide, maxUpscale) {
   canvas.height = Math.max(1, Math.round(ch * scale));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#fff'; // beim Geraderichten frei werdende Ecken: weiß wie Papier
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.scale(scale, scale);
   ctx.translate(-full.w * rect.x, -full.h * rect.y);
+  if (tilt) {
+    const cx = full.w * (rect.x + rect.w / 2), cy = full.h * (rect.y + rect.h / 2);
+    ctx.translate(cx, cy);
+    ctx.rotate(-tilt);
+    ctx.translate(-cx, -cy);
+  }
   ctx.translate(full.w / 2, full.h / 2);
   ctx.rotate(rot * Math.PI / 180);
   ctx.drawImage(img, -iw / 2, -ih / 2);
-  canvas.map = (x, y) => ({ x: x / scale + full.w * rect.x, y: y / scale + full.h * rect.y });
+  canvas.scale = scale;
+  canvas.map = (x, y) => ({ x: x / scale, y: y / scale });
   return canvas;
 }
 
-// Graustufen mit mehr Kontrast – das hilft der Texterkennung.
+// Teil eines Canvas ausschneiden (box als Anteile 0..1); map rechnet zurück in Bildpunkte des Ausschnitts
+function cutCanvas(src, box) {
+  const sx = Math.round(box.x * src.width), sy = Math.round(box.y * src.height);
+  const sw = Math.max(1, Math.round(box.w * src.width)), sh = Math.max(1, Math.round(box.h * src.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(src, sx, sy, sw, sh, 0, 0, sw, sh);
+  canvas.map = (x, y) => ({ x: (x + sx) / src.scale, y: (y + sy) / src.scale });
+  return canvas;
+}
+
+// Graustufen, Licht ausgleichen, Kontrast strecken – das hilft der Texterkennung.
+// Handyfotos sind oft ungleich hell (Schatten, Wölbung). Die Helligkeit des Papiers wird örtlich geschätzt
+// (hellste Werte der Umgebung, Schrift ist ja dunkel) und herausgerechnet: danach ist das Papier überall gleich weiß.
 function enhanceForOcr(canvas) {
+  const W = canvas.width, H = canvas.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = ctx.getImageData(0, 0, W, H);
   const px = data.data;
+  const gray = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) gray[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+
+  // Papierhelligkeit: verkleinern (Kacheln von ca. 1/90 der langen Seite), Maximum der Umgebung, glätten
+  const k = Math.max(4, Math.round(Math.max(W, H) / 90));
+  const sw = Math.ceil(W / k), sh = Math.ceil(H / k);
+  const small = new Float32Array(sw * sh);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    let m = 0;
+    for (let yy = y * k; yy < Math.min(H, (y + 1) * k); yy++) for (let xx = x * k; xx < Math.min(W, (x + 1) * k); xx++) m = Math.max(m, gray[yy * W + xx]);
+    small[y * sw + x] = m;
+  }
+  const R = 2;
+  const maxed = new Float32Array(sw * sh);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    let m = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const yy = Math.min(sh - 1, Math.max(0, y + dy)), xx = Math.min(sw - 1, Math.max(0, x + dx));
+      m = Math.max(m, small[yy * sw + xx]);
+    }
+    maxed[y * sw + x] = m;
+  }
+  const bg = new Float32Array(sw * sh);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    let a = 0, n = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const yy = y + dy, xx = x + dx;
+      if (yy >= 0 && yy < sh && xx >= 0 && xx < sw) { a += maxed[yy * sw + xx]; n++; }
+    }
+    bg[y * sw + x] = a / n;
+  }
+  // Hintergrund weich (bilinear) auf volle Größe und durchteilen
   const hist = new Array(256).fill(0);
-  for (let i = 0; i < px.length; i += 4) {
-    const g = Math.round(0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]);
-    px[i] = g;
-    hist[g]++;
+  for (let y = 0; y < H; y++) {
+    const fy = Math.min(sh - 1.001, Math.max(0, (y + 0.5) / k - 0.5)), y0 = Math.floor(fy), ty = fy - y0;
+    for (let x = 0; x < W; x++) {
+      const fx = Math.min(sw - 1.001, Math.max(0, (x + 0.5) / k - 0.5)), x0 = Math.floor(fx), tx = fx - x0;
+      const i0 = y0 * sw + x0, i1 = Math.min(sh - 1, y0 + 1) * sw + x0;
+      const x1o = x0 + 1 < sw ? 1 : 0;
+      const b = (bg[i0] * (1 - tx) + bg[i0 + x1o] * tx) * (1 - ty) + (bg[i1] * (1 - tx) + bg[i1 + x1o] * tx) * ty;
+      const v = Math.min(255, (gray[y * W + x] / Math.max(30, b)) * 255);
+      gray[y * W + x] = v;
+      hist[Math.round(v)]++;
+    }
   }
-  // 1 % dunkelste/hellste Pixel abschneiden, den Rest auf 0..255 strecken
-  const total = px.length / 4;
-  let lo = 0, hi = 255, acc = 0;
-  while (lo < 255 && (acc += hist[lo]) < total * 0.01) lo++;
-  acc = 0;
-  while (hi > 0 && (acc += hist[hi]) < total * 0.01) hi--;
+  // Kontrast strecken: dunkelstes 1 % wird schwarz, Papier bleibt weiß
+  let lo = 0, acc = 0;
+  while (lo < 254 && (acc += hist[lo]) < W * H * 0.01) lo++;
+  const hi = 245;
   const range = Math.max(1, hi - lo);
-  for (let i = 0; i < px.length; i += 4) {
-    const g = Math.max(0, Math.min(255, (px[i] - lo) * 255 / range));
-    px[i] = px[i + 1] = px[i + 2] = g;
-  }
+  for (let i = 0; i < W * H; i++) gray[i] = Math.max(0, Math.min(255, (gray[i] - lo) * 255 / range));
+  removeRules(gray, W, H, Math.max(3, Math.round(2.2 * (canvas.scale || 1))));
+  for (let i = 0; i < W * H; i++) px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = gray[i];
   ctx.putImageData(data, 0, 0);
   return canvas;
 }
 
-/* Spalten vorschlagen: ein schneller erster Lesedurchgang über die ganze Liste liefert die Lage der Wörter,
-   daraus ergeben sich die Spalten (suggestColumns in answers.js). Ohne Ergebnis: einfach links/rechts teilen. */
+// Waagerechte Trennlinien (Tabellenlinien) finden und entfernen. Sie verwirren die Texterkennung, die daneben
+// sonst ganze Zeilen verschluckt.
+// Eine Linie ist ein dünner Kamm: dunkler als die Punkte ein Stück darüber und darunter. So zählen gleichmäßig
+// dunkle Flächen (Buchrand, Schatten) nicht, schräge und gebogene Linien aber schon.
+function removeRules(gray, W, H, k) {
+  const runs = [];
+  for (let y = k; y < H - k; y++) {
+    let start = -1, gap = 0;
+    for (let x = 0; x <= W; x++) {
+      const i = y * W + x;
+      const ridge = x < W && gray[i] < 215 && gray[i] + 25 < gray[i - k * W] && gray[i] + 25 < gray[i + k * W];
+      if (ridge) {
+        if (start < 0) start = x;
+        gap = 0;
+      } else if (start >= 0 && (++gap > 2 || x === W)) {
+        const end = x - gap + 1;
+        if (end - start >= 12) runs.push({ y, x0: start, x1: end });
+        start = -1;
+        gap = 0;
+      }
+    }
+  }
+  // Zu Linien verbinden; nur lange zählen (Gedankenstriche und Buchstaben sind kurz)
+  const rules = traceRules(runs).filter(c => c.x1 - c.x0 >= W * 0.25);
+  for (const c of rules) {
+    for (const r of c.runs) {
+      // nur die Linie selbst (etwa halb so dick wie der Prüfabstand), damit Unterlängen wie bei „p“ oder „g“ bleiben
+      const t = Math.ceil(k / 2);
+      for (let y = Math.max(0, r.y - t); y <= Math.min(H - 1, r.y + t); y++) {
+        for (let x = r.x0; x < r.x1; x++) if (gray[y * W + x] < 215) gray[y * W + x] = 255;
+      }
+    }
+  }
+  // Sehr dunkle, lange Striche zusätzlich entfernen (kräftig gedruckte Linien)
+  const minRun = Math.max(40, Math.round(Math.max(W, H) / 30));
+  for (let y = 0; y < H; y++) {
+    let start = -1;
+    for (let x = 0; x <= W; x++) {
+      const dark = x < W && gray[y * W + x] < 150;
+      if (dark && start < 0) start = x;
+      if (!dark && start >= 0) {
+        if (x - start >= minRun) for (let q = start; q < x; q++) gray[y * W + q] = 255;
+        start = -1;
+      }
+    }
+  }
+}
+
+/* Spalten vorschlagen: ein schneller erster Lesedurchgang über die ganze Liste liefert die Lage der Wörter.
+   Daraus ergeben sich die Schräglage (das Foto wird für Schritt 2 gerade gedreht) und die Spalten
+   (suggestColumns in answers.js). Ohne Ergebnis: einfach links/rechts teilen. */
 async function suggestBoxes() {
-  const fallback = { en: { x: 0.02, y: 0.02, w: 0.44, h: 0.96 }, de: { x: 0.5, y: 0.02, w: 0.46, h: 0.96 } };
+  const fallback = { tilt: 0, boxes: { en: { x: 0.02, y: 0.02, w: 0.44, h: 0.96 }, de: { x: 0.5, y: 0.02, w: 0.46, h: 0.96 } } };
   try {
     const canvas = enhanceForOcr(renderCrop(crop.img, crop.rot, crop.rect, 1800, 2));
     const worker = await getOcrWorker('eng');
@@ -1418,19 +1528,31 @@ async function suggestBoxes() {
     } finally {
       await worker.setParameters({ tessedit_pageseg_mode: '6' });
     }
-    const cols = suggestColumns(ocrLines(data, canvas));
-    if (!cols) return fallback;
-    const full = turnedSize(crop.img, crop.rot);
-    const r = crop.rect;
+    const lines = ocrLines(data, canvas);
+    // Schräglage aus den Grundlinien; höchstens 12°, sonst lieber gar nicht drehen
+    const slope = lineSlope(lines);
+    const tilt = Math.abs(slope) < 0.21 ? Math.atan(slope) : 0;
+    // Alle Positionen so umrechnen, als wäre das Foto schon gerade gedreht (Drehung um die Mitte des Ausschnitts)
+    const W = canvas.width / canvas.scale, H = canvas.height / canvas.scale;
+    const cos = Math.cos(tilt), sin = Math.sin(tilt);
+    const turn = (x, y) => ({ x: W / 2 + cos * (x - W / 2) + sin * (y - H / 2), y: H / 2 - sin * (x - W / 2) + cos * (y - H / 2) });
+    const turnBox = b => {
+      const pts = [turn(b.x0, b.y0), turn(b.x1, b.y0), turn(b.x0, b.y1), turn(b.x1, b.y1)];
+      return { x0: Math.min(...pts.map(p => p.x)), x1: Math.max(...pts.map(p => p.x)), y0: Math.min(...pts.map(p => p.y)), y1: Math.max(...pts.map(p => p.y)) };
+    };
+    const straight = lines.map(l => {
+      const a = turn(l.bl.x0, l.bl.y0), b = turn(l.bl.x1, l.bl.y1);
+      return { ...l, ...turnBox(l), bl: { x0: a.x, y0: a.y, x1: b.x, y1: b.y }, words: l.words.map(w => ({ ...w, ...turnBox(w) })) };
+    });
+    const cols = suggestColumns(straight);
+    if (!cols) return { ...fallback, tilt };
     const pad = cols.wordH;
     const frac = b => {
-      const x0 = Math.max(0, (b.x0 - pad * 0.6 - full.w * r.x) / (full.w * r.w));
-      const x1 = Math.min(1, (b.x1 + pad * 0.25 - full.w * r.x) / (full.w * r.w));
-      const y0 = Math.max(0, (b.y0 - pad - full.h * r.y) / (full.h * r.h));
-      const y1 = Math.min(1, (b.y1 + pad - full.h * r.y) / (full.h * r.h));
+      const x0 = Math.max(0, (b.x0 - pad * 0.6) / W), x1 = Math.min(1, (b.x1 + pad * 0.25) / W);
+      const y0 = Math.max(0, (b.y0 - pad) / H), y1 = Math.min(1, (b.y1 + pad) / H);
       return { x: x0, y: y0, w: Math.max(0.06, x1 - x0), h: Math.max(0.06, y1 - y0) };
     };
-    return { en: frac(cols.en), de: frac(cols.de) };
+    return { tilt, boxes: { en: frac(cols.en), de: frac(cols.de) } };
   } catch (e) {
     console.error(e);
     return fallback;
@@ -1490,7 +1612,7 @@ function renderCropper() {
       : '<button type="button" class="btn big" data-action="crop-ocr">🔍 Text erkennen</button>'}`;
   // Vorschau: im 1. Schritt das ganze Foto, im 2. Schritt der vergrößerte Ausschnitt
   const preview = columns
-    ? renderCrop(crop.img, crop.rot, crop.rect, 1400, 2)
+    ? renderCrop(crop.img, crop.rot, crop.rect, 1400, 2, crop.tilt)
     : renderCrop(crop.img, crop.rot, { x: 0, y: 0, w: 1, h: 1 }, 1200, 1);
   const canvas = $('#crop-canvas');
   canvas.width = preview.width;
@@ -1552,6 +1674,7 @@ ACTIONS['crop-rotate'] = () => {
   crop.rot = (crop.rot + 90) % 360;
   crop.rect = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
   crop.boxes = null;
+  crop.tilt = 0;
   renderCropper();
 };
 ACTIONS['crop-cancel'] = () => { if (!crop.busy) closeCropper(); };
@@ -1563,11 +1686,12 @@ ACTIONS['crop-next'] = async el => {
   ocrLogger = m => {
     if (m.status && m.status !== 'recognizing text') el.textContent = `🔎 ${OCR_STATUS[m.status] || 'Spalten werden gesucht …'}`;
   };
-  const boxes = await suggestBoxes();
+  const { tilt, boxes } = await suggestBoxes();
   ocrLogger = null;
   if (!crop) return; // inzwischen abgebrochen
   crop.busy = false;
   crop.step = 2;
+  crop.tilt = tilt;
   crop.boxes = boxes;
   renderCropper();
 };
@@ -1576,14 +1700,15 @@ ACTIONS['crop-back'] = () => {
   renderCropper();
 };
 ACTIONS['crop-ocr'] = () => {
-  const { img, rot, rect } = crop;
-  // Spalten-Rahmen (relativ zum Ausschnitt) in Anteile des ganzen Fotos umrechnen
-  const inPhoto = b => ({ x: rect.x + b.x * rect.w, y: rect.y + b.y * rect.h, w: b.w * rect.w, h: b.h * rect.h });
-  const jobs = crop.step === 2
-    ? [{ side: 'en', lang: 'eng', rect: inPhoto(crop.boxes.en) }, { side: 'de', lang: 'deu', rect: inPhoto(crop.boxes.de) }]
-    : [{ side: draft.mode === 'de' ? 'de' : 'en', lang: draft.mode === 'de' ? 'deu' : 'eng', rect }];
-  // Ausschnitte groß rechnen: kleine Schrift wird besser erkannt, wenn sie hochskaliert wird
-  for (const job of jobs) job.canvas = enhanceForOcr(renderCrop(img, rot, job.rect, 2600, 3));
+  if (crop.busy) return;
+  const columns = crop.step === 2;
+  // Ausschnitt groß rechnen (kleine Schrift wird hochskaliert besser erkannt) und in Schritt 2 gerade gedreht
+  const page = enhanceForOcr(renderCrop(crop.img, crop.rot, crop.rect, 3000, 3, columns ? crop.tilt : 0));
+  const whole = { x: 0, y: 0, w: 1, h: 1 };
+  const jobs = columns
+    ? [{ side: 'en', lang: 'eng', box: crop.boxes.en }, { side: 'de', lang: 'deu', box: crop.boxes.de }]
+    : [{ side: draft.mode === 'de' ? 'de' : 'en', lang: draft.mode === 'de' ? 'deu' : 'eng', box: whole }];
+  for (const job of jobs) job.canvas = cutCanvas(page, job.box);
   closeCropper();
   runOcr(jobs);
 };

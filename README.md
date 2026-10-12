@@ -67,11 +67,14 @@ Beispielsatz** ausgelegt – zum Beispiel aus English G Lighthouse (Cornelsen).
 3. Die App schlägt einen **blauen Rahmen für Englisch** und einen **orangen für Deutsch** vor – bei Bedarf verschieben.
 4. **Text erkennen** → in der Vorschau prüfen, korrigieren, falsche Zeilen mit ✕ löschen → **Speichern**
 
-So funktioniert es: Jede Spalte wird für sich mit dem passenden Sprachmodell gelesen (Englisch bzw. Deutsch).
-Danach setzt die App die Zeilen wieder zu Paaren zusammen und rechnet dabei die Schräglage des Fotos heraus.
+So funktioniert es: Das Foto wird gerade gedreht, ungleichmäßiges Licht ausgeglichen und Tabellenlinien werden
+entfernt. Dann wird jede Spalte für sich mit dem passenden Sprachmodell gelesen (Englisch bzw. Deutsch).
+Danach setzt die App die Zeilen wieder zu Paaren zusammen – auch bei schräg oder gewölbt fotografierten Seiten,
+bei denen die deutsche Spalte oben und unten unterschiedlich weit verrutscht ist.
 Lautschrift, Beispielsätze, Zahlenkästen und Bildreste fallen weg, zweizeilige Übersetzungen werden zusammengefügt.
 
-Tipps: Buch flach hinlegen, gerade von oben und mit gutem Licht fotografieren. Die Texterkennung ist nicht
+Tipps: Buch flach hinlegen (Seite gut aufdrücken), gerade von oben und mit gutem Licht fotografieren. Sehr blass
+gedruckte Wörter erkennt die Texterkennung oft nicht. Sie ist nicht
 perfekt – einzelne Buchstaben oder Umlaute können falsch sein, deshalb immer kurz über die Vorschau schauen.
 
 Die Beispiel-Unit in der App ist ein kurzer Auszug aus Lighthouse 1 zum Ausprobieren.
