@@ -110,6 +110,23 @@ function defaultState() {
   };
 }
 
+// Die Beispiel-Unit ist nur zum Ausprobieren da: Sobald eigene Vokabeln dazukommen, verschwindet sie – einmalig.
+// Wer sie danach unter „Mehr“ wieder hinzufügt, behält sie.
+function clearSamples() {
+  if (state.samplesCleared || !state.words.some(w => w.unit !== SAMPLE_UNIT)) return false;
+  state.samplesCleared = true;
+  const had = state.words.some(w => w.unit === SAMPLE_UNIT);
+  state.words = state.words.filter(w => w.unit !== SAMPLE_UNIT);
+  delete state.unitMeta[SAMPLE_UNIT];
+  delete state.unitPlates[SAMPLE_UNIT];
+  return had;
+}
+
+function clearSamplesWithHint() {
+  // etwas später, damit der Hinweis nicht von „Gespeichert“ oder einer neuen Trophäe überdeckt wird
+  if (clearSamples()) setTimeout(() => toast('🧹 Beispiel-Vokabeln entfernt – ab jetzt lernst du deine eigenen'), 5600);
+}
+
 function newWord(en, de, unit) {
   return {
     id: uid(), en: en.trim(), de: de.trim(), unit: (unit || '').trim() || 'Ohne Lektion',
@@ -153,6 +170,7 @@ function load() {
 }
 
 let state = load();
+if (clearSamples()) save(); // wer schon eigene Vokabeln hat, braucht die Beispiele nicht mehr
 migrateGoals();
 
 function save() {
@@ -997,6 +1015,7 @@ function renderWords() {
     const w = newWord(f.en.value, f.de.value, f.unit.value);
     if (!w.en || !w.de) return;
     state.words.push(w);
+    clearSamplesWithHint();
     save();
     toast(`„${w.en}“ gespeichert`);
     f.en.value = '';
@@ -1267,6 +1286,7 @@ ACTIONS['scan-save'] = () => {
     added++;
   }
   if (added) state.stats.scans = (state.stats.scans || 0) + 1;
+  clearSamplesWithHint();
   save();
   const newBadges = unlockBadges({ scanned: added });
   if (newBadges.length) setTimeout(() => toast(`🏆 Neue Trophäe: ${newBadges.map(b => b.name).join(', ')}`), 2800);
@@ -2012,6 +2032,7 @@ async function importFile(file) {
         n++;
       }
       toast(`✅ ${n} neue Vokabeln hinzugefügt`);
+      clearSamplesWithHint();
     }
   } else {
     const unit = file.name.replace(/\.[^.]+$/, '') || 'Import';
@@ -2022,6 +2043,7 @@ async function importFile(file) {
     }
     pairs.forEach(p => state.words.push(newWord(p.en, p.de, unit)));
     toast(`✅ ${pairs.length} Vokabeln in „${unit}“ importiert`);
+    clearSamplesWithHint();
   }
   save();
   renderSettings();
@@ -2031,6 +2053,7 @@ ACTIONS['add-samples'] = () => {
   const have = new Set(state.words.filter(w => w.unit === SAMPLE_UNIT).map(w => w.en));
   const add = SAMPLE_WORDS.filter(([en]) => !have.has(en));
   add.forEach(([en, de]) => state.words.push(newWord(en, de, SAMPLE_UNIT)));
+  state.samplesCleared = true; // bewusst hinzugefügt – nicht wieder automatisch entfernen
   save();
   toast(add.length ? `${add.length} Beispiel-Vokabeln hinzugefügt` : 'Beispiel-Vokabeln sind schon da');
   renderSettings();

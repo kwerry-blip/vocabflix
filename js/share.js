@@ -332,6 +332,7 @@ SHARE_HANDLERS.unit = (p, info) => {
       state.unitMeta[unit] = { ...state.unitMeta[unit], testDate: p.test };
     }
     state.stats.unitsReceived = (state.stats.unitsReceived || 0) + 1;
+    clearSamplesWithHint();
     save();
     unlockBadges();
     dlg.close();

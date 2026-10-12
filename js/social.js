@@ -171,6 +171,7 @@ ACTIONS['duel-keep'] = el => {
       n++;
     }
   }
+  clearSamplesWithHint();
   save();
   toast(`📚 ${n} Wörter in „${duel.unit}“ gespeichert`);
 };

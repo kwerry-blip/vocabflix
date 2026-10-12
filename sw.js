@@ -1,6 +1,6 @@
 /* Service Worker: speichert die App auf dem Gerät, damit sie auch ohne Internet startet.
    Bei Änderungen an der App die Versionsnummer erhöhen. */
-const VERSION = 'v15';
+const VERSION = 'v16';
 const CACHE = `vocabflix-${VERSION}`;
 // Texterkennung (groß, ändert sich nie): eigener Cache, der Updates überlebt
 const VENDOR_CACHE = 'vocabflix-vendor-tesseract-5.1.1';
