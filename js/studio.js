@@ -239,7 +239,7 @@ ACTIONS['studio-share'] = async () => {
   openShareDialog({
     title: '📤 Beat teilen',
     intro: 'Deine Freunde können sich den Beat anhören und als eigene Lernmusik übernehmen.',
-    text: `🎛️ ${myName()} hat einen eigenen Beat gebaut – hör mal rein! Tippe auf den Link oder kopiere ihn in VocabFlix:`,
+    text: `🎛️ ${myName()} hat einen eigenen Beat gebaut – hör mal rein! Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`,
     url,
   });
 };

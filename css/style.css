@@ -1124,3 +1124,18 @@ body[data-vibe="kpop"] .vinyl {
 .item small { color: var(--muted); font-weight: 700; }
 .item.on { border-color: var(--primary); background: var(--sel-bg); }
 .item.poor { opacity: .6; }
+
+/* Link im Handy-Browser geöffnet: Hinweis, ihn in die App zu bringen */
+body.handoff-open { overflow: hidden; }
+.handoff {
+  position: fixed; inset: 0; z-index: 1000; overflow-y: auto; background: var(--bg);
+  display: flex; justify-content: center; padding: max(24px, env(safe-area-inset-top)) 16px 32px;
+}
+.handoff-box { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 14px; }
+.handoff-logo { width: 72px; height: 72px; border-radius: 18px; box-shadow: 0 0 24px var(--glow); align-self: center; }
+.handoff h1 { font-size: 24px; text-align: center; margin: 0; }
+.handoff-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 12px; font-size: 17px; }
+.handoff-steps li::marker { font-weight: 900; color: var(--primary); }
+.handoff-install { background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.handoff-install summary { font-weight: 800; cursor: pointer; }
+.handoff-install p { margin: 10px 0; }

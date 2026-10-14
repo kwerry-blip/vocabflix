@@ -180,9 +180,77 @@ document.addEventListener('click', async e => {
   } catch (err) { /* ignorieren */ }
 });
 
+/* Links aus WhatsApp öffnen sich auf dem Handy immer im Browser – nicht in der App auf dem Home-Bildschirm.
+   Der Browser hat aber einen eigenen Speicher (anderer Name, andere Vokabeln). Deshalb wird ein Link auf dem Handy
+   nur in der App angenommen; im Browser erscheint eine Seite, die erklärt, wie er in die App kommt. */
+const isPhone = isIOS || /Android/i.test(navigator.userAgent);
+
+const LINK_KIND = {
+  unit: p => `die Unit <b>„${esc(cleanText(p.name, 40) || 'Vokabeln')}“</b>`,
+  duel: () => 'eine <b>Duell-Herausforderung</b> ⚔️',
+  team: () => 'eine Einladung zur <b>Lern-Buddy-Woche</b> 👥',
+  help: () => 'ein <b>Hilfe-Paket</b> 🆘',
+  sticker: () => 'einen <b>Sticker</b> 🎉',
+  beat: () => 'einen <b>Beat</b> 🎛️',
+};
+
+async function showHandoff(code) {
+  let what = 'einen VocabFlix-Link';
+  let from = '';
+  try {
+    const p = await decodePayload(code);
+    if (LINK_KIND[p.t]) what = LINK_KIND[p.t](p);
+    from = cleanName(p.from) || '';
+  } catch (e) { /* trotzdem anzeigen */ }
+  const url = `${appBaseUrl()}#vf=${code}`;
+  const el = document.createElement('div');
+  el.className = 'handoff';
+  el.innerHTML = `
+    <div class="handoff-box">
+      <img src="icons/icon.svg" alt="" class="handoff-logo">
+      <h1>${from ? `${esc(from)} schickt dir` : 'Hier ist'} ${what}</h1>
+      <p class="muted">Links öffnen sich im Browser. Damit alles in <b>deiner</b> VocabFlix-App landet – mit deinem Namen und deinen Vokabeln –, bring den Link so hinüber:</p>
+      <ol class="handoff-steps">
+        <li><button type="button" class="btn big" id="handoff-copy">📋 Link kopieren</button></li>
+        <li>VocabFlix über das Symbol auf dem <b>Home-Bildschirm</b> öffnen</li>
+        <li>Auf der Startseite unter „Mit Freunden“ auf <b>„📋 Link einfügen“</b> tippen</li>
+      </ol>
+      <details class="handoff-install">
+        <summary>Noch keine VocabFlix-App?</summary>
+        <p>${isIOS
+          ? 'Tippe hier in Safari unten auf <b>Teilen</b> <span class="share-icon">⬆︎</span> und dann auf <b>„Zum Home-Bildschirm“</b>.'
+          : 'Tippe im Browser-Menü <b>⋮</b> auf <b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b>.'}
+          Kopiere vorher den Link – nach dem Einrichten fügst du ihn in der App ein.</p>
+        <button type="button" class="btn ghost" id="handoff-setup">App einrichten</button>
+      </details>
+    </div>`;
+  document.body.appendChild(el);
+  document.body.classList.add('handoff-open');
+  el.querySelector('#handoff-copy').onclick = async e => {
+    try {
+      await navigator.clipboard.writeText(url);
+      e.target.textContent = '✅ Kopiert – jetzt die App öffnen';
+    } catch (err) {
+      prompt('Link kopieren:', url);
+    }
+  };
+  // Zum Einrichten die normale Seite zeigen (ohne Link in der Adresse, damit die App sauber startet)
+  el.querySelector('#handoff-setup').onclick = async () => {
+    try { await navigator.clipboard.writeText(url); } catch (err) { /* egal */ }
+    history.replaceState(null, '', appBaseUrl());
+    el.remove();
+    document.body.classList.remove('handoff-open');
+    toast('📋 Link kopiert – nach dem Einrichten in der App einfügen');
+  };
+}
+
 function checkLocationHash() {
   const code = extractCode(location.hash);
   if (!code) return;
+  if (isPhone && !isStandalone()) {
+    showHandoff(code);
+    return;
+  }
   history.replaceState(null, '', appBaseUrl());
   receiveCode(code, 'link');
 }
@@ -284,7 +352,7 @@ async function shareUnit(unit) {
   openShareDialog({
     title: '📤 Unit teilen',
     intro: `<b>${esc(unit)}</b> mit ${words.length} Wörtern`,
-    text: `📚 ${from || 'Jemand'} teilt die Vokabeln „${unit}“ (${words.length} Wörter) mit dir! Tippe auf den Link oder kopiere ihn in VocabFlix:`,
+    text: `📚 ${from || 'Jemand'} teilt die Vokabeln „${unit}“ (${words.length} Wörter) mit dir! Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`,
     url,
   });
 }

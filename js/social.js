@@ -97,8 +97,8 @@ async function shareDuel(duel, r) {
     title: challenge ? '⚔️ Freund herausfordern' : '📤 Ergebnis zurückschicken',
     intro: `Dein Ergebnis: <b>${round.me.s}/${round.me.n}</b> in ${fmtTime(round.me.ms)}`,
     text: challenge
-      ? `⚔️ ${myName()} fordert dich zum Vokabel-Duell heraus: ${round.me.s}/${round.me.n} in ${fmtTime(round.me.ms)} (${duel.unit})! Schaffst du mehr? Tippe auf den Link oder kopiere ihn in VocabFlix:`
-      : `⚔️ Duell-Ergebnis von ${myName()}: ${round.me.s}/${round.me.n} in ${fmtTime(round.me.ms)}. Öffne den Link in VocabFlix für den Vergleich:`,
+      ? `⚔️ ${myName()} fordert dich zum Vokabel-Duell heraus: ${round.me.s}/${round.me.n} in ${fmtTime(round.me.ms)} (${duel.unit})! Schaffst du mehr? Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`
+      : `⚔️ Duell-Ergebnis von ${myName()}: ${round.me.s}/${round.me.n} in ${fmtTime(round.me.ms)}. Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`,
     url,
   });
 }
@@ -296,8 +296,8 @@ async function shareTeam(team) {
     title: invite ? '👥 Freunde einladen' : '📤 Stand teilen',
     intro: `Ziel: <b>${esc(g.text)}</b>${invite ? ' – bis zu 6 Leute können mitmachen.' : ''}`,
     text: invite
-      ? `👥 ${myName()} lädt dich zur Lern-Buddy-Woche ein: „${g.text}“. Machst du mit? Tippe auf den Link oder kopiere ihn in VocabFlix:`
-      : `👥 Lern-Buddy-Woche: ${myName()} steht bei ${Math.min(team.members[state.deviceId].value, g.goal)}/${g.goal}. Hier ist der Team-Stand:`,
+      ? `👥 ${myName()} lädt dich zur Lern-Buddy-Woche ein: „${g.text}“. Machst du mit? Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`
+      : `👥 Lern-Buddy-Woche: ${myName()} steht bei ${Math.min(team.members[state.deviceId].value, g.goal)}/${g.goal}. Team-Stand – Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`,
     url,
   });
 }
@@ -404,7 +404,7 @@ ACTIONS['help-new'] = async () => {
   openShareDialog({
     title: '🆘 Hilfe-Paket',
     intro: `Diese ${words.length} Wörter wackeln bei dir noch: ${words.map(w => `<b>${esc(w.en)}</b>`).join(', ')}. Ein Freund übt sie mit dir – zusammen lernt es sich leichter!`,
-    text: `🆘 ${myName()} braucht Hilfe bei ${words.length} Vokabeln – übst du mit? Tippe auf den Link oder kopiere ihn in VocabFlix:`,
+    text: `🆘 ${myName()} braucht Hilfe bei ${words.length} Vokabeln – übst du mit? Link kopieren und in der VocabFlix-App auf „📋 Link einfügen“ tippen:`,
     url,
   });
 };
